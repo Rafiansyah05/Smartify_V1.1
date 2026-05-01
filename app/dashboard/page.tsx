@@ -2,22 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { QuizCard } from '@/components/dashboard/QuizCard';
-import { Plus, Filter, Search, FileText } from 'lucide-react';
+import { Search, FileText, LayoutGrid, List } from 'lucide-react';
 import Link from 'next/link';
-
-// Mock data - nanti diganti dengan data dari database
-const mockQuizzes = [
-  { id: 1, title: 'Ujian Tengah Semester - Biologi', totalSoal: 20, tanggal: '12 Okt 2023', status: 'published', peserta: 32 },
-  { id: 2, title: 'Ujian Akhir Semester - Matematika', totalSoal: 25, tanggal: '15 Nov 2023', status: 'published', peserta: 28 },
-  { id: 3, title: 'Quiz Harian - Fisika', totalSoal: 10, tanggal: '05 Des 2023', status: 'draft', peserta: 0 },
-  { id: 4, title: 'Try Out - Kimia', totalSoal: 40, tanggal: '20 Jan 2024', status: 'published', peserta: 45 },
-  { id: 5, title: 'UH Bab 1 - Bahasa Indonesia', totalSoal: 15, tanggal: '10 Feb 2024', status: 'ongoing', peserta: 18 },
-];
 
 export default function DashboardPage() {
   const [quizzes, setQuizzes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   useEffect(() => {
     async function fetchQuizzes() {
@@ -43,57 +35,79 @@ export default function DashboardPage() {
     return date.toLocaleDateString('id-ID', {
       day: 'numeric',
       month: 'short',
-      year: 'numeric'
+      year: 'numeric',
     });
   };
 
-  const filteredQuizzes = quizzes.filter(quiz =>
+  const filteredQuizzes = quizzes.filter((quiz) =>
     quiz.judul?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <div>
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Koleksi Kuis Saya</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Kelola dan pantau semua kuis yang telah Anda buat</p>
-        </div>
-        
-        <Link
-          href="/generate"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Buat Kuis Baru</span>
-        </Link>
-      </div>
+      <div className="mb-8">
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
+          DASHBOARD
+        </p>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <h1 className="text-2xl font-bold text-gray-900">Koleksi Kuis Saya</h1>
 
-      {/* Search & Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Cari kuis..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <div className="flex items-center gap-3">
+            {/* Search */}
+            <div className="relative flex-1 lg:w-80">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Cari sesuatu..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border-0 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            {/* View Toggle */}
+            <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-white text-primary shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                <span>Grid</span>
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-white text-primary shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <List className="w-4 h-4" />
+                <span>List</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <button className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-          <Filter className="w-4 h-4" />
-          <span>Filter</span>
-        </button>
       </div>
 
       {/* Quiz Grid */}
       {loading ? (
         <div className="flex justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        <div
+          className={
+            viewMode === 'grid'
+              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5'
+              : 'flex flex-col gap-4'
+          }
+        >
           {filteredQuizzes.map((quiz) => (
             <QuizCard
               key={quiz.kuis_id}
@@ -101,8 +115,9 @@ export default function DashboardPage() {
               title={quiz.judul}
               totalSoal={quiz.total_soal}
               tanggal={formatDate(quiz.created_at)}
+              kelas={quiz.kelas || 'KELAS 10 IPA'}
               status={quiz.status || 'draft'}
-              jumlahPeserta={0} // belum ada tabel peserta kuis yang nyambung di mockup ini
+              jumlahPeserta={0}
             />
           ))}
         </div>
@@ -110,15 +125,15 @@ export default function DashboardPage() {
 
       {/* Empty State */}
       {!loading && filteredQuizzes.length === 0 && (
-        <div className="text-center py-12">
-          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
+        <div className="text-center py-16">
+          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
             <FileText className="w-8 h-8 text-gray-400" />
           </div>
-          <h3 className="text-lg font-medium text-gray-800 dark:text-white">Belum ada kuis</h3>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Mulai buat kuis pertama Anda</p>
+          <h3 className="text-lg font-medium text-gray-800">Belum ada kuis</h3>
+          <p className="text-gray-500 mt-1 mb-4">Mulai buat kuis pertama Anda</p>
           <Link
             href="/generate"
-            className="inline-block mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-medium transition-colors"
           >
             + Buat Kuis Baru
           </Link>
