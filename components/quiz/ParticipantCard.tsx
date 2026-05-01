@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { MoreVertical } from 'lucide-react';
 
 interface ParticipantCardProps {
   name: string;
@@ -9,20 +9,19 @@ interface ParticipantCardProps {
 }
 
 export function ParticipantCard({ name, status, highlightName = false }: ParticipantCardProps) {
-  const isSuccess = status === 'success';
-  const statusLabel = isSuccess ? 'Success' : 'Connecting...';
-  const statusClass = isSuccess ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-orange-600 bg-orange-50 border-orange-100';
+  const isReady = status === 'success';
+  const statusLabel = isReady ? 'Ready' : 'Connecting...';
+  const statusColor = isReady ? 'text-emerald-500' : 'text-amber-500';
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between gap-4">
+    <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
       <div>
-        <p className={`text-sm font-semibold ${highlightName ? 'text-cyan-700' : 'text-gray-900'}`}>{name}</p>
-        <span className={`mt-1 inline-flex items-center gap-2 px-2.5 py-1 text-[11px] font-medium rounded-full border ${statusClass}`}>
-          {isSuccess ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+        <p className={`font-medium text-sm ${highlightName ? 'text-cyan-600' : 'text-gray-800'}`}>{name}</p>
+        <span className={`text-xs ${statusColor}`}>
           {statusLabel}
         </span>
       </div>
-      <div className="text-xs text-gray-400">&bull;</div>
+      <MoreVertical className="w-4 h-4 text-gray-400" />
     </div>
   );
 }
