@@ -2,20 +2,22 @@
 
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Upload, FileText, Clock, Target, BookOpen, Settings } from 'lucide-react';
+import { Upload, Lightbulb, Pencil, ChevronDown } from 'lucide-react';
 
 export default function GenerateQuizPage() {
   const router = useRouter();
-  const [quizType, setQuizType] = useState('pilihan_ganda');
+  const [quizType, setQuizType] = useState('campuran');
   const [difficulty, setDifficulty] = useState('medium');
-  const [totalQuestions, setTotalQuestions] = useState(20);
-  const [duration, setDuration] = useState(60);
-  const [kkm, setKkm] = useState(70);
+  const [multipleChoiceCount, setMultipleChoiceCount] = useState(5);
+  const [shortAnswerCount, setShortAnswerCount] = useState(2);
+  const [duration, setDuration] = useState(45);
+  const [kkm, setKkm] = useState(75);
   const [title, setTitle] = useState('');
   
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -27,6 +29,28 @@ export default function GenerateQuizPage() {
     } else {
       setError('Hanya file PDF yang diperbolehkan');
       setFile(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile && droppedFile.type === 'application/pdf') {
+      setFile(droppedFile);
+      setError('');
+    } else {
+      setError('Hanya file PDF yang diperbolehkan');
     }
   };
 
@@ -49,7 +73,9 @@ export default function GenerateQuizPage() {
       formData.append('title', title);
       formData.append('type', quizType);
       formData.append('difficulty', difficulty);
-      formData.append('totalQuestions', totalQuestions.toString());
+      formData.append('totalQuestions', (multipleChoiceCount + shortAnswerCount).toString());
+      formData.append('multipleChoiceCount', multipleChoiceCount.toString());
+      formData.append('shortAnswerCount', shortAnswerCount.toString());
       formData.append('duration', duration.toString());
       formData.append('kkm', kkm.toString());
 
@@ -61,7 +87,6 @@ export default function GenerateQuizPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal generate kuis');
 
-      // Redirect ke preview page
       router.push(`/quiz/${data.quizId}/preview`);
     } catch (err: any) {
       setError(err.message);
@@ -71,181 +96,255 @@ export default function GenerateQuizPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Generate Quiz</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">Buat kuis baru dari dokumen PDF Anda</p>
+      <div className="mb-8">
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">GENERATE QUIZ</p>
+        <h1 className="text-2xl font-bold text-gray-900">Buat Kuis Baru</h1>
       </div>
 
-      {/* Upload PDF Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-            <Upload className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+      {/* Main Content - Two Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Card 1: Sumber Materi */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          {/* Section Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-sm font-semibold">
+              1
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">Sumber Materi</h2>
           </div>
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white">Upload Modul PDF</h2>
-        </div>
-        
-        <input 
-          type="file" 
-          accept=".pdf" 
-          className="hidden" 
-          ref={fileInputRef} 
-          onChange={handleFileChange}
-        />
-        
-        <div 
-          onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-            file ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/10' : 'border-gray-300 dark:border-gray-600 hover:border-blue-400'
-          }`}
-        >
-          <FileText className={`w-12 h-12 mx-auto mb-3 ${file ? 'text-blue-500' : 'text-gray-400'}`} />
-          {file ? (
-            <div>
-              <p className="text-gray-800 dark:text-white font-medium mb-1">{file.name}</p>
-              <p className="text-sm text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+
+          {/* Upload Area */}
+          <input 
+            type="file" 
+            accept=".pdf" 
+            className="hidden" 
+            ref={fileInputRef} 
+            onChange={handleFileChange}
+          />
+          
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200 ${
+              isDragging 
+                ? 'border-primary bg-primary/5' 
+                : file 
+                  ? 'border-primary bg-primary/5' 
+                  : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex flex-col items-center">
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${
+                file ? 'bg-primary/10' : 'bg-gray-50'
+              }`}>
+                <Upload className={`w-7 h-7 ${file ? 'text-primary' : 'text-primary/60'}`} />
+              </div>
+              
+              {file ? (
+                <>
+                  <p className="text-gray-900 font-medium mb-1">{file.name}</p>
+                  <p className="text-sm text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-800 font-medium mb-1">Tarik file PDF ke sini</p>
+                  <p className="text-sm text-gray-400 mb-4">atau klik untuk memilih dari komputer</p>
+                  
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-full">
+                      MAX 10MB
+                    </span>
+                    <span className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-full">
+                      PDF ONLY
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
-          ) : (
-            <div>
-              <p className="text-gray-600 dark:text-gray-400 mb-1">Klik atau drag file PDF ke sini</p>
-              <p className="text-sm text-gray-400">Maksimal 10MB</p>
-            </div>
+          </div>
+
+          {/* Tips Box */}
+          <div className="mt-4 p-4 bg-amber-50 rounded-xl flex gap-3">
+            <Lightbulb className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-700">
+              Tips: Gunakan materi yang bersih dari gambar agar mendapatkan hasil yang lebih baik
+            </p>
+          </div>
+
+          {error && (
+            <p className="text-red-500 text-sm mt-3 text-center">{error}</p>
           )}
         </div>
-        
-        {error && <p className="text-red-500 text-sm mt-3 text-center">{error}</p>}
-      </div>
 
-      {/* Quiz Configuration */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-            <Settings className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-          </div>
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white">Konfigurasi Kuis</h2>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Judul Kuis */}
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Judul Kuis
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Contoh: Ujian Tengah Semester - Biologi"
-              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+        {/* Card 2: Konfigurasi Kuis */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          {/* Section Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-sm font-semibold">
+              2
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">Konfigurasi Kuis</h2>
           </div>
 
-          {/* Jenis Soal */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Jenis Soal
-            </label>
-            <select
-              value={quizType}
-              onChange={(e) => setQuizType(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="pilihan_ganda">Pilihan Ganda</option>
-              <option value="uraian">Uraian/Essay</option>
-              <option value="campuran">Campuran</option>
-            </select>
-          </div>
+          <div className="space-y-5">
+            {/* Judul Kuis */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Judul Kuis
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Contoh: Ulangan Harian - Kalkulus 2"
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
 
-          {/* Tingkat Kesulitan */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Tingkat Kesulitan
-            </label>
-            <select
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="easy">Mudah</option>
-              <option value="medium">Sedang</option>
-              <option value="hard">Sulit</option>
-            </select>
-          </div>
-
-          {/* Jumlah Soal */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Jumlah Soal
-            </label>
-            <input
-              type="number"
-              value={isNaN(totalQuestions) ? '' : totalQuestions}
-              onChange={(e) => setTotalQuestions(e.target.value ? parseInt(e.target.value) : 0)}
-              min={1}
-              max={100}
-              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Durasi (menit) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Durasi Pengerjaan (menit)
-            </label>
-            <input
-              type="number"
-              value={isNaN(duration) ? '' : duration}
-              onChange={(e) => setDuration(e.target.value ? parseInt(e.target.value) : 0)}
-              min={1}
-              max={180}
-              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* KKM */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              KKM (Kriteria Ketuntasan Minimal)
-            </label>
-            <input
-              type="number"
-              value={isNaN(kkm) ? '' : kkm}
-              onChange={(e) => setKkm(e.target.value ? parseInt(e.target.value) : 0)}
-              min={0}
-              max={100}
-              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* Conditional: Jika campuran, tampilkan detail jumlah */}
-        {quizType === 'campuran' && (
-          <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Detail Jumlah Soal</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Jumlah Pilihan Ganda</label>
-                <input type="number" min={0} max={isNaN(totalQuestions) ? 100 : totalQuestions} className="w-full px-4 py-2 border rounded-lg bg-white dark:bg-gray-800" />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Jumlah Uraian</label>
-                <input type="number" min={0} max={isNaN(totalQuestions) ? 100 : totalQuestions} className="w-full px-4 py-2 border rounded-lg bg-white dark:bg-gray-800" />
+            {/* Jenis Soal */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Jenis Soal
+              </label>
+              <div className="relative">
+                <select
+                  value={quizType}
+                  onChange={(e) => setQuizType(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all appearance-none cursor-pointer"
+                >
+                  <option value="pilihan_ganda">Pilihan Ganda</option>
+                  <option value="isian">Isian Singkat</option>
+                  <option value="campuran">Campuran (Pilihan Ganda &amp; Isian)</option>
+                </select>
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Generate Button */}
-        <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-700">
-          <button 
-            onClick={handleGenerate}
-            disabled={loading || !file || !title}
-            className="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Sedang Meng-generate Soal (Mohon Tunggu)...' : 'Buat Soal Sekarang!'}
-          </button>
+            {/* Jumlah Soal - Only show for campuran */}
+            {quizType === 'campuran' && (
+              <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                    JUMLAH PILIHAN GANDA
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={isNaN(multipleChoiceCount) ? '' : multipleChoiceCount}
+                      onChange={(e) => setMultipleChoiceCount(e.target.value ? parseInt(e.target.value) : 0)}
+                      min={0}
+                      max={50}
+                      className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">
+                      SOAL
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                    JUMLAH ISIAN SINGKAT
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={isNaN(shortAnswerCount) ? '' : shortAnswerCount}
+                      onChange={(e) => setShortAnswerCount(e.target.value ? parseInt(e.target.value) : 0)}
+                      min={0}
+                      max={50}
+                      className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">
+                      SOAL
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tingkat Kesulitan */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tingkat Kesulitan
+              </label>
+              <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl">
+                {[
+                  { value: 'easy', label: 'EASY' },
+                  { value: 'medium', label: 'MEDIUM' },
+                  { value: 'hard', label: 'HARD BANGEETT' },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setDifficulty(option.value)}
+                    className={`py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
+                      difficulty === option.value
+                        ? 'bg-white text-primary shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Durasi & KKM */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Durasi
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={isNaN(duration) ? '' : duration}
+                    onChange={(e) => setDuration(e.target.value ? parseInt(e.target.value) : 0)}
+                    min={1}
+                    max={180}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">
+                    MENIT
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  KKM
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={isNaN(kkm) ? '' : kkm}
+                    onChange={(e) => setKkm(e.target.value ? parseInt(e.target.value) : 0)}
+                    min={0}
+                    max={100}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">
+                    SKOR
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Generate Button */}
+            <div className="flex justify-end pt-4">
+              <button 
+                onClick={handleGenerate}
+                disabled={loading || !file || !title}
+                className="flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/90 text-white font-medium rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/25"
+              >
+                <Pencil className="w-4 h-4" />
+                {loading ? 'Meng-generate...' : 'Buat Soal Sekarang!'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
