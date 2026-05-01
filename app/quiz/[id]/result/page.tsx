@@ -1,16 +1,15 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, XCircle, ArrowRight, Share2 } from 'lucide-react';
-import Image from 'next/image';
+import { CheckCircle2, XCircle, ArrowRight, Share2, Clock, Award } from 'lucide-react';
 
 interface LeaderboardEntry {
   rank: number;
-  name: string;
-  score: number;
+  peserta_id: string;
+  nama_siswa: string;
+  nilai: number;
   isCurrentUser?: boolean;
-  avatar?: string;
 }
 
 export default function QuizResultPage() {
@@ -19,109 +18,69 @@ export default function QuizResultPage() {
   const searchParams = useSearchParams();
   const { id } = params;
   const qrToken = searchParams.get('token');
+  const pesertaId = searchParams.get('pesertaId');
 
   const [quiz, setQuiz] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [result, setResult] = useState<any>(null);
+  const [participant, setParticipant] = useState<any>(null);
+  const [statistics, setStatistics] = useState<any>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [userScore, setUserScore] = useState(0);
-  const [correctCount, setCorrectCount] = useState(0);
-  const [incorrectCount, setIncorrectCount] = useState(0);
-  const [totalParticipants, setTotalParticipants] = useState(0);
   const [userRank, setUserRank] = useState(0);
+  const [totalParticipants, setTotalParticipants] = useState(0);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchResult = async () => {
       try {
         setLoading(true);
 
-        // Get stored result data
-        const storedResult = localStorage.getItem(`quiz-result-${id}-${qrToken}`);
-        if (storedResult) {
-          setResult(JSON.parse(storedResult));
-        }
-
-        // Fetch quiz data
-        const quizRes = await fetch(`/api/quiz/${id}`, { credentials: 'include' });
-        const quizData = await quizRes.json();
-
-        if (quizRes.ok) {
-          setQuiz(quizData.kuis);
-
-          // Calculate score (mock implementation - in real app this would be server-side)
-          const questions = quizData.soal || [];
-          const answers = storedResult ? JSON.parse(storedResult).answers : {};
-
-          let correct = 0;
-          let incorrect = 0;
-
-          questions.forEach((q: any) => {
-            const userAnswer = answers[q.soal_id];
-            if (userAnswer) {
-              if (q.tipe_soal === 'pilihan_ganda') {
-                const correctOption = q.pilihan?.find((p: any) => p.is_benar);
-                if (correctOption && userAnswer === correctOption.teks_pilihan) {
-                  correct++;
-                } else {
-                  incorrect++;
-                }
-              } else {
-                // For essay, consider it correct if answered (simplified)
-                correct++;
-              }
+        // Get pesertaId from URL or localStorage
+        let participantId = pesertaId;
+        if (!participantId) {
+          const stored = localStorage.getItem(`quiz-result-${id}-${qrToken}`);
+          if (stored) {
+            const data = JSON.parse(stored);
+            participantId = data.pesertaId;
+            // Redirect with pesertaId in URL
+            if (participantId) {
+              router.replace(`/quiz/${id}/result?token=${qrToken}&pesertaId=${participantId}`);
+              return;
             }
-          });
-
-          setCorrectCount(correct);
-          setIncorrectCount(incorrect);
-
-          const score = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 0;
-          setUserScore(score);
-
-          // Generate mock leaderboard
-          const participantName = storedResult ? JSON.parse(storedResult).participantName : 'Anda';
-
-          const mockLeaderboard: LeaderboardEntry[] = [
-            { rank: 1, name: 'Bahalililili', score: 98 },
-            { rank: 2, name: 'Parabwowo', score: 95 },
-            { rank: 3, name: 'Abu Kamil', score: 94 },
-            { rank: 4, name: 'Gibrann', score: 92 },
-            { rank: 5, name: 'Giberan21', score: 90 },
-          ];
-
-          // Find user's position
-          let userPosition = mockLeaderboard.findIndex((entry) => entry.score < score);
-          if (userPosition === -1) userPosition = mockLeaderboard.length;
-
-          // If user is in top 5, insert them
-          if (userPosition < 5) {
-            mockLeaderboard.splice(userPosition, 0, {
-              rank: userPosition + 1,
-              name: participantName,
-              score: score,
-              isCurrentUser: true,
-            });
-            // Re-rank everyone
-            mockLeaderboard.forEach((entry, idx) => {
-              entry.rank = idx + 1;
-            });
-            // Keep only top 5 + user if not in top 5
-            mockLeaderboard.splice(6);
           }
-
-          setLeaderboard(mockLeaderboard.slice(0, 5));
-          setUserRank(score >= 90 ? userPosition + 1 : 7); // Mock rank
-          setTotalParticipants(34); // Mock total
         }
+
+        if (!participantId) {
+          setError('Data hasil tidak ditemukan');
+          return;
+        }
+
+        // Fetch from server
+        const res = await fetch(`/api/quiz/${id}/result/${participantId}`, {
+          credentials: 'include',
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || 'Gagal memuat hasil');
+          return;
+        }
+
+        setQuiz(data.quiz);
+        setParticipant(data.participant);
+        setStatistics(data.statistics);
+        setLeaderboard(data.leaderboard || []);
+        setUserRank(data.userRank || 0);
+        setTotalParticipants(data.totalParticipants || 0);
       } catch (err) {
         console.error(err);
+        setError('Terjadi kesalahan saat memuat hasil');
       } finally {
         setLoading(false);
       }
     };
 
     fetchResult();
-  }, [id, qrToken]);
+  }, [id, qrToken, pesertaId, router]);
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -140,28 +99,35 @@ export default function QuizResultPage() {
     if (isCurrentUser) return 'bg-cyan-400 text-white';
     switch (rank) {
       case 1:
-        return 'bg-yellow-400';
+        return 'bg-yellow-50 border-yellow-200';
       case 2:
-        return 'bg-gray-200';
+        return 'bg-gray-50 border-gray-200';
       case 3:
-        return 'bg-amber-400';
+        return 'bg-amber-50 border-amber-200';
       default:
-        return 'bg-gray-50';
+        return 'bg-gray-50 border-gray-100';
     }
   };
 
   const handleViewAnswers = () => {
-    router.push(`/quiz/${id}/review?token=${qrToken}`);
+    router.push(`/quiz/${id}/review?token=${qrToken}&pesertaId=${participant?.peserta_id || pesertaId}`);
   };
 
   const handleShare = () => {
     if (navigator.share) {
       navigator.share({
         title: `Hasil Kuis: ${quiz?.judul}`,
-        text: `Saya mendapat nilai ${userScore} pada ${quiz?.judul}!`,
+        text: `Saya mendapat nilai ${statistics?.score || 0} pada ${quiz?.judul}!`,
         url: window.location.href,
       });
     }
+  };
+
+  const formatDuration = (seconds: number | null | undefined) => {
+    if (!seconds) return '-';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
   };
 
   if (loading) {
@@ -171,6 +137,25 @@ export default function QuizResultPage() {
       </div>
     );
   }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-100 p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Error</h1>
+          <p className="text-sm text-gray-500 mb-6">{error}</p>
+          <button onClick={() => router.push('/dashboard')} className="rounded-full bg-cyan-400 px-6 py-3 text-sm font-semibold text-white hover:bg-cyan-500">
+            Kembali ke Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const userScore = statistics?.score || 0;
+  const correctCount = statistics?.correctCount || 0;
+  const incorrectCount = statistics?.incorrectCount || 0;
+  const totalQuestions = statistics?.totalQuestions || 0;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
@@ -208,11 +193,31 @@ export default function QuizResultPage() {
             <div className="flex items-center justify-center gap-8 mb-6">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                <span className="text-emerald-500 font-medium">{correctCount} Correct</span>
+                <span className="text-emerald-500 font-medium">{correctCount} Benar</span>
               </div>
               <div className="flex items-center gap-2">
                 <XCircle className="w-5 h-5 text-red-500" />
-                <span className="text-red-500 font-medium">{incorrectCount} Incorrect</span>
+                <span className="text-red-500 font-medium">{incorrectCount} Salah</span>
+              </div>
+            </div>
+
+            {/* Additional Info */}
+            <div className="space-y-3 mb-6 p-4 bg-gray-50 rounded-xl">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="w-4 h-4" />
+                  <span>Waktu Pengerjaan</span>
+                </div>
+                <span className="font-medium text-gray-800">{formatDuration(participant?.durasi_pengerjaan)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Award className="w-4 h-4" />
+                  <span>Status</span>
+                </div>
+                <span className={`font-medium ${participant?.status_remedial ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {participant?.status_remedial ? 'Remedial' : 'Lulus'}
+                </span>
               </div>
             </div>
 
@@ -227,44 +232,55 @@ export default function QuizResultPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             <h2 className="text-xl font-bold text-gray-800 mb-6">Leaderboard ({totalParticipants} siswa)</h2>
 
-            <div className="space-y-3">
-              {leaderboard.map((entry) => (
-                <div key={entry.rank} className={`flex items-center justify-between p-4 rounded-xl ${getRankBgColor(entry.rank, entry.isCurrentUser)}`}>
-                  <div className="flex items-center gap-4">
-                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isCurrentUser ? 'bg-cyan-500 text-white' : 'bg-white/50 text-gray-700'}`}>{entry.rank}</span>
-
-                    {entry.isCurrentUser && (
-                      <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center overflow-hidden">
-                        <span className="text-white text-xs font-medium">{entry.name.substring(0, 2).toUpperCase()}</span>
-                      </div>
-                    )}
-
-                    <span className={`font-medium ${entry.isCurrentUser ? 'text-white' : 'text-gray-800'}`}>{entry.isCurrentUser ? `You (${entry.name})` : entry.name}</span>
-                  </div>
-
-                  <span className={`font-bold text-lg ${entry.isCurrentUser ? 'text-white' : 'text-gray-800'}`}>{entry.score}</span>
-                </div>
-              ))}
-
-              {/* Current user if not in top 5 */}
-              {userRank > 5 && (
-                <>
-                  <div className="flex items-center justify-center py-2">
-                    <span className="text-gray-400">...</span>
-                  </div>
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-cyan-400">
+            {leaderboard.length > 0 ? (
+              <div className="space-y-3">
+                {leaderboard.map((entry) => (
+                  <div 
+                    key={entry.peserta_id} 
+                    className={`flex items-center justify-between p-4 rounded-xl border ${entry.isCurrentUser ? 'bg-cyan-400 border-cyan-400' : getRankBgColor(entry.rank)}`}
+                  >
                     <div className="flex items-center gap-4">
-                      <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold bg-cyan-500 text-white">{userRank}</span>
+                      <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isCurrentUser ? 'bg-cyan-500 text-white' : getRankColor(entry.rank)}`}>
+                        {entry.rank}
+                      </span>
+
                       <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center overflow-hidden">
-                        <span className="text-white text-xs font-medium">{result?.participantName?.substring(0, 2).toUpperCase() || 'AN'}</span>
+                        <span className="text-white text-xs font-medium">{entry.nama_siswa.substring(0, 2).toUpperCase()}</span>
                       </div>
-                      <span className="font-medium text-white">You ({result?.participantName || 'Anda'})</span>
+
+                      <span className={`font-medium ${entry.isCurrentUser ? 'text-white' : 'text-gray-800'}`}>
+                        {entry.isCurrentUser ? `You (${entry.nama_siswa})` : entry.nama_siswa}
+                      </span>
                     </div>
-                    <span className="font-bold text-lg text-white">{userScore}</span>
+
+                    <span className={`font-bold text-lg ${entry.isCurrentUser ? 'text-white' : 'text-gray-800'}`}>{entry.nilai}</span>
                   </div>
-                </>
-              )}
-            </div>
+                ))}
+
+                {/* Current user if not in top 10 */}
+                {userRank > 10 && (
+                  <>
+                    <div className="flex items-center justify-center py-2">
+                      <span className="text-gray-400">...</span>
+                    </div>
+                    <div className="flex items-center justify-between p-4 rounded-xl bg-cyan-400">
+                      <div className="flex items-center gap-4">
+                        <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold bg-cyan-500 text-white">{userRank}</span>
+                        <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center overflow-hidden">
+                          <span className="text-white text-xs font-medium">{participant?.nama_siswa?.substring(0, 2).toUpperCase() || 'AN'}</span>
+                        </div>
+                        <span className="font-medium text-white">You ({participant?.nama_siswa || 'Anda'})</span>
+                      </div>
+                      <span className="font-bold text-lg text-white">{userScore}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                Belum ada data leaderboard
+              </div>
+            )}
           </div>
         </div>
       </div>

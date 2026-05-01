@@ -117,14 +117,34 @@ export default function WaitingRoomPage() {
   }, [storageKey]);
 
   useEffect(() => {
-    if (!loading && !isTeacher && qrToken && quiz?.status === 'ongoing') {
+    if (!loading && !isTeacher && qrToken && quiz?.status === 'ongoing' && joinedParticipant) {
+      // Store participant info for the take page
+      const participantData = {
+        ...joinedParticipant,
+        quizStartTime: new Date().toISOString(),
+      };
+      if (storageKey && typeof window !== 'undefined') {
+        window.localStorage.setItem(storageKey, JSON.stringify(participantData));
+      }
       router.push(`/quiz/${id}/take?token=${qrToken}`);
     }
-  }, [loading, isTeacher, qrToken, quiz, id, router]);
+  }, [loading, isTeacher, qrToken, quiz, id, router, joinedParticipant, storageKey]);
 
   useEffect(() => {
     fetchRoom();
   }, [id, qrToken]);
+
+  // Auto-polling for students: check every 3 seconds if quiz has started
+  useEffect(() => {
+    if (loading || isTeacher || !qrToken || !joinedParticipant) return;
+    if (quiz?.status === 'ongoing') return; // Already redirecting
+
+    const pollInterval = setInterval(() => {
+      fetchRoom(false);
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [loading, isTeacher, qrToken, joinedParticipant, quiz?.status]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,8 +341,14 @@ export default function WaitingRoomPage() {
 
           {/* Waiting Message */}
           <div className="bg-cyan-50 rounded-xl p-6 text-center border border-cyan-100">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
             <p className="text-cyan-800 font-medium">Anda telah bergabung sebagai {joinedParticipant?.nama_siswa}</p>
             <p className="text-cyan-600 text-sm mt-2">Silakan tunggu guru memulai kuis...</p>
+            <p className="text-cyan-500 text-xs mt-1">Halaman akan otomatis berpindah saat kuis dimulai</p>
           </div>
         </div>
       </div>
