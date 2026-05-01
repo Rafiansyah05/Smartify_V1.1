@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Upload, Lightbulb, Pencil, ChevronDown } from 'lucide-react';
+import { Upload, Lightbulb, Pencil, ChevronDown, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function GenerateQuizPage() {
   const router = useRouter();
@@ -16,6 +16,7 @@ export default function GenerateQuizPage() {
   
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   
@@ -65,7 +66,16 @@ export default function GenerateQuizPage() {
     }
 
     setLoading(true);
+    setLoadingStep(1);
     setError('');
+
+    // Simulasi progress steps
+    const stepInterval = setInterval(() => {
+      setLoadingStep((prev) => {
+        if (prev < 4) return prev + 1;
+        return prev;
+      });
+    }, 3500);
 
     try {
       const formData = new FormData();
@@ -87,13 +97,26 @@ export default function GenerateQuizPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal generate kuis');
 
-      router.push(`/quiz/${data.quizId}/preview`);
+      setLoadingStep(5); // Completed
+      setTimeout(() => {
+        router.push(`/quiz/${data.quizId}/preview`);
+      }, 1000);
     } catch (err: any) {
       setError(err.message);
-    } finally {
       setLoading(false);
+    } finally {
+      clearInterval(stepInterval);
     }
   };
+
+  const loadingStepsText = [
+    '',
+    'Menyiapkan dokumen...',
+    'Membaca konten PDF...',
+    'Menganalisis materi dengan AI...',
+    'Menyusun pertanyaan & kunci jawaban...',
+    'Finalisasi kuis...'
+  ];
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -347,6 +370,61 @@ export default function GenerateQuizPage() {
           </div>
         </div>
       </div>
+
+      {/* Loading Modal */}
+      {loading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 relative overflow-hidden">
+            {/* Progress Bar Top */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gray-100">
+              <div 
+                className="h-full bg-primary transition-all duration-500 ease-out"
+                style={{ width: `${(loadingStep / 5) * 100}%` }}
+              />
+            </div>
+
+            <div className="text-center mb-8 mt-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-6">
+                {loadingStep === 5 ? (
+                  <CheckCircle2 className="w-8 h-8 text-primary" />
+                ) : (
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                )}
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Membuat Kuis AI</h3>
+              <p className="text-gray-500 text-sm">Mohon tunggu, AI sedang memproses materi Anda.</p>
+            </div>
+
+            <div className="space-y-4">
+              {[1, 2, 3, 4, 5].map((stepIndex) => (
+                <div key={stepIndex} className="flex items-center gap-3">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-colors duration-300 ${
+                    loadingStep > stepIndex 
+                      ? 'bg-primary border-primary text-white' 
+                      : loadingStep === stepIndex
+                        ? 'border-primary text-primary'
+                        : 'border-gray-200 text-gray-300'
+                  }`}>
+                    {loadingStep > stepIndex ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <span className="text-xs font-bold">{stepIndex}</span>
+                    )}
+                  </div>
+                  <span className={`text-sm font-medium transition-colors duration-300 ${
+                    loadingStep >= stepIndex ? 'text-gray-800' : 'text-gray-400'
+                  }`}>
+                    {loadingStepsText[stepIndex]}
+                  </span>
+                  {loadingStep === stepIndex && (
+                    <Loader2 className="w-4 h-4 text-primary animate-spin ml-auto" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

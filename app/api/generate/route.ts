@@ -144,15 +144,15 @@ Kembalikan hasil HANYA DALAM FORMAT JSON ARRAY tanpa markdown (tanpa \`\`\`json)
           await supabase.from('kunci_jawaban').insert({
             soal_id: soalId,
             jawaban_text: q.penjelasan,
-            kata_kunci: ''
+            kata_kunci: []
           });
         }
       } else if (!soalError && soalData && q.tipe_soal === 'uraian') {
         const soalId = soalData.soal_id;
         await supabase.from('kunci_jawaban').insert({
           soal_id: soalId,
-          jawaban_text: q.penjelasan || q.kunci_jawaban_essay,
-          kata_kunci: q.kunci_jawaban_essay || ''
+          jawaban_text: q.penjelasan || q.kunci_jawaban_essay || 'Tidak ada kunci jawaban',
+          kata_kunci: q.kunci_jawaban_essay ? [q.kunci_jawaban_essay] : []
         });
       }
     }

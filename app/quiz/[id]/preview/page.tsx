@@ -91,7 +91,7 @@ export default function PreviewQuizPage() {
         method: 'DELETE',
       });
       if (res.ok) {
-        setQuestions(questions.filter(q => q.soal_id !== soalId));
+        setQuestions(questions.filter((q) => q.soal_id !== soalId));
       } else {
         alert('Gagal menghapus soal');
       }
@@ -101,22 +101,61 @@ export default function PreviewQuizPage() {
   };
 
   const handleSaveAndContinue = async () => {
+    if (!id) {
+      alert('ID kuis tidak valid');
+      return;
+    }
+
     try {
-      const res = await fetch(`/api/quiz/${id}/publish`, {
-        method: 'POST'
+      const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
+      const res = await fetch(url.toString(), {
+        method: 'POST',
+        credentials: 'include',
       });
       if (res.ok) {
         router.push(`/quiz/${id}/waiting-room`);
       } else {
-        alert('Gagal menyimpan kuis');
+        const data = await res.json();
+        alert(data.error || 'Gagal menyimpan kuis');
       }
     } catch (err) {
       console.error(err);
+      alert('Terjadi kesalahan saat menyimpan kuis');
     }
   };
 
   const handleBack = () => {
     router.back();
+  };
+
+  const formatText = (text?: string) => {
+    if (!text) return null;
+    // Split by <br>, <br/>, or newline
+    const lines = text.split(/<br\s*\/?>|\n/g);
+
+    return (
+      <>
+        {lines.map((line, i) => {
+          // Split by bold markdown **text**
+          const parts = line.split(/(\*\*.*?\*\*)/g);
+          return (
+            <span key={i}>
+              {parts.map((part, j) => {
+                if (part.startsWith('**') && part.endsWith('**')) {
+                  return (
+                    <strong key={j} className="font-bold">
+                      {part.slice(2, -2)}
+                    </strong>
+                  );
+                }
+                return <span key={j}>{part}</span>;
+              })}
+              {i < lines.length - 1 && <br />}
+            </span>
+          );
+        })}
+      </>
+    );
   };
 
   if (loading) {
@@ -133,10 +172,7 @@ export default function PreviewQuizPage() {
       <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           {/* Back to Home */}
-          <button 
-            onClick={handleBack}
-            className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={handleBack} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
             <ArrowLeft className="w-5 h-5" />
             <span className="font-semibold text-lg">Back to Home</span>
           </button>
@@ -150,13 +186,8 @@ export default function PreviewQuizPage() {
 
             {/* Profile */}
             <div className="relative">
-              <button
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="flex items-center justify-center w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 hover:border-cyan-400 transition-colors"
-              >
-                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-medium text-sm">
-                  {getInitials(user?.nama)}
-                </div>
+              <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center justify-center w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 hover:border-cyan-400 transition-colors">
+                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-medium text-sm">{getInitials(user?.nama)}</div>
               </button>
 
               {/* Dropdown Menu */}
@@ -166,10 +197,7 @@ export default function PreviewQuizPage() {
                     <p className="text-sm font-medium text-gray-800 truncate">{user?.nama || 'User'}</p>
                     <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
                   </div>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-gray-50 transition-colors"
-                  >
+                  <button onClick={handleLogout} className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-gray-50 transition-colors">
                     Logout
                   </button>
                 </div>
@@ -185,15 +213,10 @@ export default function PreviewQuizPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
-                GENERATE QUIZ {'>'} PREVIEW
-              </p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">GENERATE QUIZ {'>'} PREVIEW</p>
               <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
             </div>
-            <button 
-              onClick={handleDownload}
-              className="flex items-center gap-2 px-5 py-2.5 bg-cyan-400 hover:bg-cyan-500 text-white rounded-full font-medium transition-colors"
-            >
+            <button onClick={handleDownload} className="flex items-center gap-2 px-5 py-2.5 bg-cyan-400 hover:bg-cyan-500 text-white rounded-full font-medium transition-colors">
               <Download className="w-4 h-4" />
               Download Soal
             </button>
@@ -205,7 +228,7 @@ export default function PreviewQuizPage() {
           {questions.map((q, index) => (
             <div key={q.soal_id} className="pb-8 border-b border-gray-100 last:border-b-0 last:pb-0">
               <h3 className="font-bold text-gray-800 mb-4 text-lg">Soal {index + 1}.</h3>
-              <p className="text-gray-700 mb-6 leading-relaxed">{q.teks_soal}</p>
+              <div className="text-gray-700 mb-6 leading-relaxed">{formatText(q.teks_soal)}</div>
 
               {q.tipe_soal === 'pilihan_ganda' && q.pilihan && (
                 <div className="space-y-4 mb-8">
@@ -213,12 +236,8 @@ export default function PreviewQuizPage() {
                     const label = String.fromCharCode(65 + pIndex);
                     return (
                       <div key={p.pilihan_id} className="flex items-center gap-4">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cyan-400 text-white text-sm font-bold flex-shrink-0">
-                          {label}
-                        </div>
-                        <span className="text-gray-700 font-medium">
-                          {p.teks_pilihan}
-                        </span>
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cyan-400 text-white text-sm font-bold flex-shrink-0">{label}</div>
+                        <span className="text-gray-700 font-medium">{p.teks_pilihan}</span>
                       </div>
                     );
                   })}
@@ -229,46 +248,37 @@ export default function PreviewQuizPage() {
                 <div className="mb-6">
                   <p className="text-sm text-gray-500 mb-2">Jawaban Benar</p>
                   <div className="bg-emerald-100 px-5 py-3.5 rounded-xl flex items-center gap-4">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-sm font-bold flex-shrink-0">
-                      {String.fromCharCode(65 + q.pilihan.findIndex((p:any) => p.is_benar))}
-                    </div>
-                    <span className="font-semibold text-gray-800">
-                      {q.pilihan.find((p:any) => p.is_benar)?.teks_pilihan}
-                    </span>
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-sm font-bold flex-shrink-0">{String.fromCharCode(65 + q.pilihan.findIndex((p: any) => p.is_benar))}</div>
+                    <span className="font-semibold text-gray-800">{q.pilihan.find((p: any) => p.is_benar)?.teks_pilihan}</span>
                   </div>
                 </div>
               )}
 
               {q.tipe_soal === 'uraian' && q.kunci_jawaban && (
                 <div className="mb-6">
-                  <p className="text-sm text-gray-500 mb-2">Kunci Jawaban</p>
+                  <p className="text-sm text-gray-500 mb-2">Kunci Jawaban / Penjelasan</p>
                   <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
-                    <p className="text-emerald-800 text-sm">{q.kunci_jawaban.jawaban_text}</p>
+                    <div className="text-emerald-800 text-sm leading-relaxed">{formatText(q.kunci_jawaban.jawaban_text)}</div>
                   </div>
                 </div>
               )}
 
-              {q.kunci_jawaban && q.kunci_jawaban.jawaban_text && q.tipe_soal === 'pilihan_ganda' && (
+              {q.tipe_soal === 'pilihan_ganda' && q.kunci_jawaban && q.kunci_jawaban.jawaban_text && (
                 <div className="mb-6">
                   <p className="text-sm text-gray-500 mb-2">Penjelasan</p>
-                  <p className="text-gray-700 text-sm leading-relaxed">
-                    {q.kunci_jawaban.jawaban_text}
-                  </p>
+                  <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
+                    <div className="text-emerald-800 text-sm leading-relaxed">{formatText(q.kunci_jawaban.jawaban_text)}</div>
+                  </div>
                 </div>
               )}
 
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-4">
-                <button 
-                  onClick={() => handleDelete(q.soal_id)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-500 hover:bg-red-100 rounded-full font-medium transition-colors"
-                >
+                <button onClick={() => handleDelete(q.soal_id)} className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-500 hover:bg-red-100 rounded-full font-medium transition-colors">
                   <Trash2 className="w-4 h-4" />
                   Hapus Soal
                 </button>
-                <button 
-                  className="flex items-center gap-2 px-5 py-2.5 bg-cyan-50 text-cyan-500 hover:bg-cyan-100 rounded-full font-medium transition-colors"
-                >
+                <button className="flex items-center gap-2 px-5 py-2.5 bg-cyan-50 text-cyan-500 hover:bg-cyan-100 rounded-full font-medium transition-colors">
                   <Edit2 className="w-4 h-4" />
                   Edit Soal
                 </button>
@@ -280,7 +290,7 @@ export default function PreviewQuizPage() {
 
       {/* Fixed Bottom Action */}
       <div className="fixed bottom-6 right-6 z-30">
-        <button 
+        <button
           onClick={handleSaveAndContinue}
           className="flex items-center gap-2 px-6 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full shadow-lg shadow-cyan-400/30 transition-all hover:shadow-xl hover:shadow-cyan-400/40"
         >
