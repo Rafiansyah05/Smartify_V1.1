@@ -3,10 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { ArrowLeft } from 'lucide-react';
-import { ParticipantCard } from '@/components/quiz/ParticipantCard';
+import { ArrowLeft, Bell, MoreVertical, RefreshCw } from 'lucide-react';
 
 const QR_SERVICE = 'https://api.qrserver.com/v1/create-qr-code/';
+
+interface Participant {
+  peserta_id: string;
+  nama_siswa: string;
+  status: 'connecting' | 'success' | string;
+}
 
 export default function WaitingRoomPage() {
   const params = useParams();
@@ -17,18 +22,19 @@ export default function WaitingRoomPage() {
 
   const [quiz, setQuiz] = useState<any>(null);
   const [qrCode, setQrCode] = useState<any>(null);
-  const [participants, setParticipants] = useState<any[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [joinedParticipant, setJoinedParticipant] = useState<any>(null);
   const [storedParticipant, setStoredParticipant] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [joinName, setJoinName] = useState('');
   const [joinError, setJoinError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [startError, setStartError] = useState('');
   const [roomError, setRoomError] = useState('');
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const isTeacher = useMemo(() => user?.role === 'guru' || user?.role === 'admin', [user]);
   const studentView = !isTeacher;
@@ -44,7 +50,11 @@ export default function WaitingRoomPage() {
 
   const fetchRoom = async (showLoading = true) => {
     try {
-      if (showLoading) setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
       const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
       if (qrToken) url.searchParams.set('token', qrToken);
       const res = await fetch(url.toString(), { credentials: 'include' });
@@ -63,14 +73,12 @@ export default function WaitingRoomPage() {
       setRoomError('Terjadi kesalahan saat memuat data');
       console.error(err);
     } finally {
-      if (showLoading) setLoading(false);
-      setRefreshing(false);
+      if (showLoading) {
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+      }
     }
-  };
-
-  const handleRefreshRoom = async () => {
-    setRefreshing(true);
-    await fetchRoom(false);
   };
 
   const handleStartQuiz = async () => {
@@ -110,7 +118,7 @@ export default function WaitingRoomPage() {
 
   useEffect(() => {
     if (!loading && !isTeacher && qrToken && quiz?.status === 'ongoing') {
-      router.push(`/quiz/${id}/progress`);
+      router.push(`/quiz/${id}/take?token=${qrToken}`);
     }
   }, [loading, isTeacher, qrToken, quiz, id, router]);
 
@@ -163,52 +171,63 @@ export default function WaitingRoomPage() {
     window.open(qrUrl, '_blank');
   };
 
-  const downloadQrCode = async () => {
-    if (!qrUrl) return;
-    const imageUrl = `${QR_SERVICE}?size=360x360&data=${encodeURIComponent(qrUrl)}`;
+  const getInitials = (name?: string) => {
+    if (!name) return 'UN';
+    const parts = name.split(' ');
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return name.substring(0, 2).toUpperCase();
+  };
 
+  const handleLogout = async () => {
     try {
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${quiz?.judul || 'qr-code'}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+      await fetch('/api/auth/logout', { method: 'POST' });
+      router.push('/auth/login');
     } catch (err) {
-      console.error(err);
-      alert('Gagal mengunduh QR code. Silakan coba lagi.');
+      console.error('Logout error:', err);
+    }
+  };
+
+  const getDifficultyColor = (difficulty: string) => {
+    switch (difficulty?.toLowerCase()) {
+      case 'easy':
+      case 'mudah':
+        return 'text-emerald-500';
+      case 'medium':
+      case 'sedang':
+        return 'text-amber-500';
+      case 'hard':
+      case 'sulit':
+        return 'text-red-500';
+      default:
+        return 'text-emerald-500';
     }
   };
 
   const renderJoinCard = () => (
-    <div className="max-w-md mx-auto bg-card rounded-3xl shadow-sm border border-border p-8">
+    <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
       <div className="flex flex-col items-center gap-4 mb-6">
         <Image src="/images/logo2.png" alt="Smartify" width={80} height={80} priority />
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-card-foreground">Masuk Ruangan</h1>
-          <p className="text-sm text-muted mt-2">Masukkan nama lengkap untuk bergabung ke kuis.</p>
+          <h1 className="text-2xl font-bold text-gray-800">Masuk Ruangan</h1>
+          <p className="text-sm text-gray-500 mt-2">Masukkan nama lengkap untuk bergabung ke kuis.</p>
         </div>
       </div>
 
       {quiz && (
-        <div className="mb-6 rounded-3xl bg-white p-5 border border-gray-100 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-gray-400 mb-2">{quiz.judul}</p>
+        <div className="mb-6 rounded-2xl bg-gray-50 p-5 border border-gray-100">
+          <p className="text-xs uppercase tracking-widest text-gray-400 mb-2">{quiz.judul}</p>
           <div className="grid grid-cols-3 gap-3 text-sm text-gray-600">
-            <div className="rounded-2xl bg-slate-50 p-3 text-center">
+            <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
               <p className="font-semibold text-gray-900">{quiz.total_soal}</p>
-              <span>Soal</span>
+              <span className="text-xs">Soal</span>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-3 text-center">
+            <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
               <p className="font-semibold text-gray-900">{quiz.durasi_menit}m</p>
-              <span>Durasi</span>
+              <span className="text-xs">Durasi</span>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-3 text-center">
-              <p className="font-semibold text-gray-900 capitalize">{quiz.tingkat_kesulitan}</p>
-              <span>Level</span>
+            <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
+              <p className={`font-semibold capitalize ${getDifficultyColor(quiz.tingkat_kesulitan)}`}>{quiz.tingkat_kesulitan}</p>
+              <span className="text-xs">Level</span>
             </div>
           </div>
         </div>
@@ -216,7 +235,7 @@ export default function WaitingRoomPage() {
 
       <form onSubmit={handleJoin} className="space-y-4">
         <div className="space-y-2">
-          <label htmlFor="joinName" className="block text-sm font-medium text-[#3E484F]">
+          <label htmlFor="joinName" className="block text-sm font-medium text-gray-700">
             Nama Lengkap
           </label>
           <input
@@ -224,172 +243,226 @@ export default function WaitingRoomPage() {
             value={joinName}
             onChange={(e) => setJoinName(e.target.value)}
             placeholder="Contoh: Royma Teddy"
-            className="w-full rounded-2xl border border-border bg-input px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
           />
         </div>
 
         {joinError && <p className="text-sm text-red-600">{joinError}</p>}
 
-        <button type="submit" disabled={submitting} className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50">
+        <button type="submit" disabled={submitting} className="w-full rounded-full bg-cyan-400 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-cyan-500 disabled:opacity-50">
           {submitting ? 'Memproses...' : 'Masuk'}
         </button>
       </form>
     </div>
   );
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (roomError) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
-        <div className="max-w-lg w-full bg-card rounded-3xl border border-border p-8 text-center shadow-sm">
-          <h1 className="text-2xl font-bold text-card-foreground mb-4">Ruangan Tidak Ditemukan</h1>
-          <p className="text-sm text-muted mb-6">{roomError}</p>
-          <button onClick={() => router.push('/dashboard')} className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
-            Kembali ke Dashboard
+  // Student Waiting View - after joined
+  const renderStudentWaitingView = () => (
+    <div className="min-h-screen bg-gray-50 pb-16">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <button onClick={() => router.push('/dashboard')} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-semibold text-lg">Back to Home</span>
           </button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => fetchRoom(false)} disabled={refreshing || loading} className="p-2.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              <RefreshCw className="w-5 h-5 text-gray-500" />
+            </button>
+            <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
+              <Bell className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-4xl mx-auto px-6 mt-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          {/* Breadcrumb & Title */}
+          <div className="mb-8">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+              GENERATE QUIZ {'>'} PREVIEW {'>'} WAITING ROOM
+            </p>
+            <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
+          </div>
+
+          {/* Quiz Info */}
+          <div className="grid grid-cols-3 gap-4 mb-8">
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">QUESTIONS</p>
+              <p className="text-2xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">TIME LIMIT</p>
+              <p className="text-2xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">DIFFICULTY</p>
+              <p className={`text-2xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
+            </div>
+          </div>
+
+          {/* Student List */}
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">{participants.length} Siswa Bergabung</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {participants.map((participant) => (
+                <div key={participant.peserta_id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-gray-800 text-sm">{participant.nama_siswa}</p>
+                    <span className={`text-xs ${participant.status === 'success' ? 'text-emerald-500' : 'text-amber-500'}`}>{participant.status === 'success' ? 'Ready' : 'Connecting...'}</span>
+                  </div>
+                  <MoreVertical className="w-4 h-4 text-gray-400" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Waiting Message */}
+          <div className="bg-cyan-50 rounded-xl p-6 text-center border border-cyan-100">
+            <p className="text-cyan-800 font-medium">Anda telah bergabung sebagai {joinedParticipant?.nama_siswa}</p>
+            <p className="text-cyan-600 text-sm mt-2">Silakan tunggu guru memulai kuis...</p>
+          </div>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (!isTeacher && !joinedParticipant && qrToken) {
-    return <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">{renderJoinCard()}</div>;
-  }
+  // Teacher View
+  const renderTeacherView = () => (
+    <div className="min-h-screen bg-gray-50 pb-16">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <button onClick={() => router.push('/dashboard')} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-semibold text-lg">Back to Home</span>
+          </button>
 
-  return (
-    <div className="min-h-screen bg-background pb-16">
-      <div className="max-w-7xl mx-auto px-4 pt-10">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/dashboard')} className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700">
-              <ArrowLeft className="w-4 h-4" /> Kembali
+            <button onClick={() => fetchRoom(false)} disabled={refreshing || loading} className="p-2.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              <RefreshCw className="w-5 h-5 text-gray-500" />
             </button>
-            <span className="text-xs uppercase tracking-[0.3em] text-gray-400">Waiting Room</span>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            {isTeacher && (
-              <button
-                onClick={handleStartQuiz}
-                disabled={starting || quiz?.status === 'ongoing'}
-                className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {quiz?.status === 'ongoing' ? 'Kuis Sedang Berlangsung' : starting ? 'Memulai...' : 'Mulai Kuis'}
+            <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
+              <Bell className="w-5 h-5 text-gray-500" />
+            </button>
+
+            <div className="relative">
+              <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center justify-center w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 hover:border-cyan-400 transition-colors">
+                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-medium text-sm">{getInitials(user?.nama)}</div>
               </button>
-            )}
-            <button
-              onClick={handleRefreshRoom}
-              disabled={refreshing}
-              className="inline-flex items-center justify-center rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {refreshing ? 'Memuat...' : 'Segarkan'}
-            </button>
+
+              {showProfileMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <p className="text-sm font-medium text-gray-800 truncate">{user?.nama || 'User'}</p>
+                    <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
+                  </div>
+                  <button onClick={handleLogout} className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-gray-50 transition-colors">
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-        {startError && <div className="rounded-3xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-4">{startError}</div>}
+      </header>
 
-        <div className="rounded-3xl border border-border bg-card p-8 shadow-sm">
-          <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-6">
-              <div className="rounded-3xl bg-white p-6 shadow-sm border border-gray-100">
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.3em] text-gray-400 mb-2">{quiz?.judul || 'Ulangan Harian'}</p>
-                    <h1 className="text-3xl font-bold text-gray-900">Waiting Room</h1>
-                  </div>
-                  <div className="inline-flex items-center rounded-full bg-primary/10 px-4 py-2 text-sm font-semibold text-primary">{participants.length} Siswa Bergabung</div>
+      <div className="max-w-6xl mx-auto px-6 mt-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          {/* Breadcrumb & Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                GENERATE QUIZ {'>'} PREVIEW {'>'} WAITING ROOM
+              </p>
+              <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
+            </div>
+
+            <div className="flex items-center gap-6">
+              {/* Quiz Stats */}
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <p className="text-xs uppercase tracking-wider text-gray-400">QUESTIONS</p>
+                  <p className="text-xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
                 </div>
-
-                <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                  <div className="rounded-3xl bg-slate-50 p-5 text-sm text-slate-700">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Jumlah Soal</p>
-                    <p className="mt-2 text-xl font-semibold text-slate-900">{quiz?.total_soal ?? 0}</p>
-                  </div>
-                  <div className="rounded-3xl bg-slate-50 p-5 text-sm text-slate-700">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Durasi</p>
-                    <p className="mt-2 text-xl font-semibold text-slate-900">{quiz?.durasi_menit ?? 0} menit</p>
-                  </div>
-                  <div className="rounded-3xl bg-slate-50 p-5 text-sm text-slate-700">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Kesulitan</p>
-                    <p className="mt-2 text-xl font-semibold text-slate-900 capitalize">{quiz?.tingkat_kesulitan || 'Medium'}</p>
-                  </div>
+                <div className="text-center">
+                  <p className="text-xs uppercase tracking-wider text-gray-400">TIME LIMIT</p>
+                  <p className="text-xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs uppercase tracking-wider text-gray-400">DIFFICULTY</p>
+                  <p className={`text-xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
                 </div>
               </div>
 
-              <div className="rounded-3xl bg-white p-6 shadow-sm border border-gray-100">
-                <div className="flex items-center justify-between gap-4 mb-5">
-                  <div>
-                    <p className="text-sm font-medium text-gray-500">QR Code Join</p>
-                    <p className="text-xs text-gray-400">Tamu dapat scan untuk masuk ke waiting room.</p>
-                  </div>
-                  <div className="inline-flex items-center gap-2 text-xs text-gray-500 rounded-full border border-gray-200 px-3 py-2">
-                    <strong>Mode</strong> {isTeacher ? 'Guru' : 'Siswa'}
-                  </div>
-                </div>
+              {/* Start Button */}
+              <button
+                onClick={handleStartQuiz}
+                disabled={starting || quiz?.status === 'ongoing'}
+                className="px-6 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {quiz?.status === 'ongoing' ? 'Kuis Berlangsung' : starting ? 'Memulai...' : 'Mulai Kuis Sekarang!'}
+              </button>
+            </div>
+          </div>
 
-                <div className="rounded-3xl border border-gray-100 bg-slate-50 p-6 text-center">
-                  {qrUrl ? (
-                    <div className="relative mx-auto w-full max-w-[260px]">
-                      <img crossOrigin="anonymous" src={`${QR_SERVICE}?size=320x320&data=${encodeURIComponent(qrUrl)}`} alt="QR Code Smartify" className="mx-auto rounded-3xl border border-slate-200 bg-white" />
-                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                        <div className="rounded-full bg-white p-2 shadow-sm">
-                          <Image src="/images/logo2.png" alt="Smartify" width={58} height={58} />
-                        </div>
+          {startError && <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{startError}</div>}
+
+          {/* Main Content */}
+          <div className="grid lg:grid-cols-[300px_1fr] gap-8">
+            {/* QR Code Section */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-6">
+              <div className="text-center">
+                {qrUrl ? (
+                  <div className="relative mx-auto w-full max-w-[220px]">
+                    <img crossOrigin="anonymous" src={`${QR_SERVICE}?size=280x280&data=${encodeURIComponent(qrUrl)}`} alt="QR Code Smartify" className="mx-auto rounded-2xl border border-gray-200 bg-white" />
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <div className="rounded-full bg-white p-1.5 shadow-sm">
+                        <Image src="/images/logo2.png" alt="Smartify" width={40} height={40} />
                       </div>
                     </div>
-                  ) : (
-                    <div className="h-72 flex items-center justify-center text-sm text-gray-400">QR Code belum tersedia</div>
-                  )}
+                  </div>
+                ) : (
+                  <div className="h-56 flex items-center justify-center text-sm text-gray-400 bg-gray-50 rounded-2xl">QR Code belum tersedia</div>
+                )}
 
-                  {qrUrl && (
-                    <div className="mt-6 space-y-3">
-                      <div className="rounded-3xl bg-white p-4 border border-gray-100 text-left text-sm text-gray-700 break-words">
-                        <p className="text-xs text-gray-400 mb-1">Link QR</p>
-                        <p className="font-medium text-gray-900">{qrUrl}</p>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <button onClick={openQrFull} className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition-colors">
-                          Buka Full Size
-                        </button>
-                        <button onClick={downloadQrCode} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
-                          Download QR
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                <div className="mt-6 border-t border-gray-100 pt-6">
+                  <h3 className="font-semibold text-gray-800">Scan to Join</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Open your camera
+                    <br />
+                    to join the lobby instantly.
+                  </p>
+
+                  <button onClick={openQrFull} className="mt-4 w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                    Buka QR
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div className="space-y-6">
-              <div className="rounded-3xl bg-white p-6 shadow-sm border border-gray-100">
-                <div className="flex items-center justify-between gap-4 mb-5">
-                  <div>
-                    <p className="text-sm font-medium text-gray-500">Ruangan</p>
-                    <h2 className="text-xl font-semibold text-gray-900">Daftar Siswa</h2>
-                  </div>
-                  <span className="text-sm text-gray-400">{participants.length} peserta</span>
-                </div>
+            {/* Participants Section */}
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">{participants.length} Siswa Bergabung</h2>
 
-                <div className="space-y-3">
-                  {participants.length > 0 ? (
-                    participants.map((participant) => <ParticipantCard key={participant.peserta_id} name={participant.nama_siswa} status={participant.status} highlightName={studentView} />)
-                  ) : (
-                    <div className="rounded-3xl border border-dashed border-gray-200 bg-slate-50 p-6 text-center text-sm text-gray-500">Belum ada siswa yang masuk. Tunggu beberapa saat.</div>
-                  )}
+              {participants.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {participants.map((participant) => (
+                    <div key={participant.peserta_id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-gray-800 text-sm">{participant.nama_siswa}</p>
+                        <span className={`text-xs ${participant.status === 'success' ? 'text-emerald-500' : 'text-amber-500'}`}>{participant.status === 'success' ? 'Ready' : 'Connecting...'}</span>
+                      </div>
+                      <MoreVertical className="w-4 h-4 text-gray-400" />
+                    </div>
+                  ))}
                 </div>
-              </div>
-
-              {!isTeacher && joinedParticipant && (
-                <div className="rounded-3xl bg-white p-6 shadow-sm border border-gray-100">
-                  <p className="text-sm text-gray-500">Anda berhasil masuk ke waiting room.</p>
-                  <p className="mt-4 text-gray-900 font-semibold">Silakan tunggu guru memulai kuis.</p>
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-12 text-center">
+                  <p className="text-gray-500">Belum ada siswa yang bergabung.</p>
+                  <p className="text-sm text-gray-400 mt-1">Bagikan QR code untuk mengundang siswa.</p>
                 </div>
               )}
             </div>
@@ -398,4 +471,39 @@ export default function WaitingRoomPage() {
       </div>
     </div>
   );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
+      </div>
+    );
+  }
+
+  if (roomError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-100 p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Ruangan Tidak Ditemukan</h1>
+          <p className="text-sm text-gray-500 mb-6">{roomError}</p>
+          <button onClick={() => router.push('/dashboard')} className="rounded-full bg-cyan-400 px-6 py-3 text-sm font-semibold text-white hover:bg-cyan-500">
+            Kembali ke Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Student without joining yet
+  if (!isTeacher && !joinedParticipant && qrToken) {
+    return <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">{renderJoinCard()}</div>;
+  }
+
+  // Student already joined
+  if (!isTeacher && joinedParticipant) {
+    return renderStudentWaitingView();
+  }
+
+  // Teacher view
+  return renderTeacherView();
 }
