@@ -39,17 +39,13 @@ export default function DashboardPage() {
     });
   };
 
-  const filteredQuizzes = quizzes.filter((quiz) =>
-    quiz.judul?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredQuizzes = quizzes.filter((quiz) => quiz.judul?.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
     <div>
       {/* Page Header */}
       <div className="mb-8">
-        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-          DASHBOARD
-        </p>
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">DASHBOARD</p>
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <h1 className="text-2xl font-bold text-gray-900">Koleksi Kuis Saya</h1>
 
@@ -70,22 +66,14 @@ export default function DashboardPage() {
             <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1">
               <button
                 onClick={() => setViewMode('grid')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  viewMode === 'grid'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <LayoutGrid className="w-4 h-4" />
                 <span>Grid</span>
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  viewMode === 'list'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${viewMode === 'list' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <List className="w-4 h-4" />
                 <span>List</span>
@@ -101,24 +89,9 @@ export default function DashboardPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div
-          className={
-            viewMode === 'grid'
-              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5'
-              : 'flex flex-col gap-4'
-          }
-        >
+        <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5' : 'flex flex-col gap-4'}>
           {filteredQuizzes.map((quiz) => (
-            <QuizCard
-              key={quiz.kuis_id}
-              id={quiz.kuis_id}
-              title={quiz.judul}
-              totalSoal={quiz.total_soal}
-              tanggal={formatDate(quiz.created_at)}
-              kelas={quiz.kelas || 'KELAS 10 IPA'}
-              status={quiz.status || 'draft'}
-              jumlahPeserta={0}
-            />
+            <QuizCard key={quiz.kuis_id} id={quiz.kuis_id} title={quiz.judul} totalSoal={quiz.total_soal} tanggal={formatDate(quiz.created_at)} copyright={quiz.kelas || 'KELAS 10 IPA'} status={quiz.status || 'draft'} jumlahPeserta={0} />
           ))}
         </div>
       )}
@@ -131,10 +104,7 @@ export default function DashboardPage() {
           </div>
           <h3 className="text-lg font-medium text-gray-800">Belum ada kuis</h3>
           <p className="text-gray-500 mt-1 mb-4">Mulai buat kuis pertama Anda</p>
-          <Link
-            href="/generate"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-medium transition-colors"
-          >
+          <Link href="/generate" className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-medium transition-colors">
             + Buat Kuis Baru
           </Link>
         </div>
