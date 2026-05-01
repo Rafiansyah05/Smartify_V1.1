@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Clock } from 'lucide-react';
+import { Clock, AlertTriangle } from 'lucide-react';
 
 interface Question {
   soal_id: number;
@@ -32,6 +32,11 @@ export default function TakeQuizPage() {
   const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [participant, setParticipant] = useState<any>(null);
+  const [autoSubmitting, setAutoSubmitting] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | ''>('');
+
+  const hasSubmittedRef = useRef(false);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentQuestion = shuffledQuestions[currentQuestionIndex];
   const totalQuestions = shuffledQuestions.length;
@@ -55,7 +60,8 @@ export default function TakeQuizPage() {
       const storageKey = `waiting-room-${id}-${qrToken}`;
       const stored = localStorage.getItem(storageKey);
       if (stored) {
-        setParticipant(JSON.parse(stored));
+        const participantData = JSON.parse(stored);
+        setParticipant(participantData);
       }
 
       const res = await fetch(`/api/quiz/${id}`, { credentials: 'include' });
@@ -63,6 +69,12 @@ export default function TakeQuizPage() {
 
       if (!res.ok) {
         setError(data.error || 'Gagal memuat kuis');
+        return;
+      }
+
+      // Check if quiz is ongoing
+      if (data.kuis?.status !== 'ongoing') {
+        setError('Kuis belum dimulai atau sudah berakhir');
         return;
       }
 
@@ -78,9 +90,19 @@ export default function TakeQuizPage() {
       }));
       setShuffledQuestions(shuffledWithChoices);
 
-      // Set timer
+      // Set timer based on quiz duration
       if (data.kuis?.durasi_menit) {
         setTimeRemaining(data.kuis.durasi_menit * 60);
+      }
+
+      // Restore saved answers if any
+      const savedAnswers = localStorage.getItem(`quiz-answers-${id}-${qrToken}`);
+      if (savedAnswers) {
+        try {
+          setAnswers(JSON.parse(savedAnswers));
+        } catch (e) {
+          console.error('Failed to restore answers', e);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -90,15 +112,100 @@ export default function TakeQuizPage() {
     }
   };
 
+  // Auto-save answers to localStorage
+  const saveAnswersLocally = useCallback(() => {
+    if (Object.keys(answers).length > 0) {
+      localStorage.setItem(`quiz-answers-${id}-${qrToken}`, JSON.stringify(answers));
+    }
+  }, [answers, id, qrToken]);
+
+  // Debounced auto-save
+  useEffect(() => {
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    if (Object.keys(answers).length > 0) {
+      setSaveStatus('saving');
+      autoSaveTimeoutRef.current = setTimeout(() => {
+        saveAnswersLocally();
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus(''), 2000);
+      }, 1000);
+    }
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [answers, saveAnswersLocally]);
+
+  // Submit quiz to server
+  const handleSubmit = useCallback(
+    async (isAutoSubmit = false) => {
+      if (hasSubmittedRef.current) return;
+      if (!participant?.peserta_id) {
+        setError('Data peserta tidak ditemukan');
+        return;
+      }
+
+      hasSubmittedRef.current = true;
+      setSubmitting(true);
+      if (isAutoSubmit) setAutoSubmitting(true);
+
+      try {
+        const res = await fetch(`/api/quiz/${id}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pesertaId: participant.peserta_id,
+            answers,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || 'Gagal mengirim jawaban');
+        }
+
+        // Clear local storage
+        localStorage.removeItem(`quiz-answers-${id}-${qrToken}`);
+
+        // Store result for display
+        localStorage.setItem(
+          `quiz-result-${id}-${qrToken}`,
+          JSON.stringify({
+            ...data.result,
+            participantName: participant.nama_siswa,
+          }),
+        );
+
+        // Navigate to result page
+        router.push(`/quiz/${id}/result?token=${qrToken}&pesertaId=${participant.peserta_id}`);
+      } catch (err: any) {
+        console.error('Submit error:', err);
+        hasSubmittedRef.current = false;
+        setError(err.message || 'Gagal mengirim jawaban');
+        setSubmitting(false);
+        setAutoSubmitting(false);
+      }
+    },
+    [participant, answers, id, qrToken, router],
+  );
+
   // Timer countdown
   useEffect(() => {
-    if (timeRemaining <= 0) return;
+    if (timeRemaining <= 0 || loading) return;
 
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
           // Auto submit when time is up
-          handleSubmit();
+          if (!hasSubmittedRef.current) {
+            handleSubmit(true);
+          }
           return 0;
         }
         return prev - 1;
@@ -106,7 +213,7 @@ export default function TakeQuizPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeRemaining]);
+  }, [timeRemaining, loading, handleSubmit]);
 
   useEffect(() => {
     if (!id || !qrToken) {
@@ -115,6 +222,19 @@ export default function TakeQuizPage() {
     }
     fetchQuiz();
   }, [id, qrToken]);
+
+  // Warn before leaving page
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasSubmittedRef.current && Object.keys(answers).length > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [answers]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -174,31 +294,10 @@ export default function TakeQuizPage() {
     setCurrentQuestionIndex(index);
   };
 
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    try {
-      // Calculate score (in real implementation, this would be done server-side)
-      // For now, we'll navigate to results page with the answers
-      const participantData = participant || { nama_siswa: 'Siswa' };
-
-      // Store answers and navigate to results
-      const resultData = {
-        answers,
-        participantName: participantData.nama_siswa,
-        quizId: id,
-        token: qrToken,
-        totalQuestions,
-        answeredCount,
-      };
-
-      localStorage.setItem(`quiz-result-${id}-${qrToken}`, JSON.stringify(resultData));
-      router.push(`/quiz/${id}/result?token=${qrToken}`);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-      setShowConfirmSubmit(false);
-    }
+  const getTimeColor = () => {
+    if (timeRemaining <= 60) return 'bg-red-500';
+    if (timeRemaining <= 300) return 'bg-amber-500';
+    return 'bg-cyan-500';
   };
 
   if (loading) {
@@ -223,6 +322,22 @@ export default function TakeQuizPage() {
     );
   }
 
+  // Auto-submitting overlay
+  if (autoSubmitting) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-100 p-8 text-center shadow-sm">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
+            <AlertTriangle className="w-8 h-8 text-amber-500" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Waktu Habis!</h1>
+          <p className="text-sm text-gray-500 mb-6">Jawaban Anda sedang dikumpulkan secara otomatis...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
       {/* Header */}
@@ -234,10 +349,19 @@ export default function TakeQuizPage() {
               <h1 className="text-xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
             </div>
 
-            {/* Timer */}
-            <div className="flex items-center gap-2 px-5 py-2.5 bg-cyan-500 text-white rounded-full">
-              <Clock className="w-5 h-5" />
-              <span className="font-bold">{formatTime(timeRemaining)}</span>
+            <div className="flex items-center gap-4">
+              {/* Save Status */}
+              {saveStatus && (
+                <span className={`text-xs ${saveStatus === 'saved' ? 'text-emerald-500' : saveStatus === 'saving' ? 'text-gray-400' : 'text-red-500'}`}>
+                  {saveStatus === 'saved' ? 'Tersimpan' : saveStatus === 'saving' ? 'Menyimpan...' : 'Gagal menyimpan'}
+                </span>
+              )}
+
+              {/* Timer */}
+              <div className={`flex items-center gap-2 px-5 py-2.5 ${getTimeColor()} text-white rounded-full transition-colors`}>
+                <Clock className="w-5 h-5" />
+                <span className="font-bold">{formatTime(timeRemaining)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -250,7 +374,10 @@ export default function TakeQuizPage() {
             {currentQuestion ? (
               <>
                 <div className="mb-6">
-                  <h2 className="text-lg font-bold text-gray-800 mb-4">Soal {currentQuestionIndex + 1}.</h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-gray-800">Soal {currentQuestionIndex + 1}.</h2>
+                    <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full">{currentQuestion.tipe_soal === 'pilihan_ganda' ? 'Pilihan Ganda' : 'Uraian'}</span>
+                  </div>
                   <div className="text-gray-700 leading-relaxed">{formatText(currentQuestion.teks_soal)}</div>
                 </div>
 
@@ -281,10 +408,11 @@ export default function TakeQuizPage() {
                     <textarea
                       value={answers[currentQuestion.soal_id] || ''}
                       onChange={(e) => handleAnswerSelect(e.target.value)}
-                      rows={6}
-                      placeholder="Tulis jawaban di sini..."
-                      className="w-full rounded-xl border-2 border-gray-100 bg-gray-50 p-4 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
+                      rows={8}
+                      placeholder="Tulis jawaban Anda di sini dengan lengkap dan jelas..."
+                      className="w-full rounded-xl border-2 border-gray-100 bg-gray-50 p-4 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent resize-none"
                     />
+                    <p className="text-xs text-gray-400 mt-2">{(answers[currentQuestion.soal_id] || '').length} karakter</p>
                   </div>
                 )}
 
@@ -319,10 +447,10 @@ export default function TakeQuizPage() {
             </div>
 
             <div className="mb-6">
-              <p className="text-sm font-medium text-gray-700 mb-3">Question</p>
+              <p className="text-sm font-medium text-gray-700 mb-3">Navigasi Soal</p>
               <div className="grid grid-cols-6 gap-2">
                 {shuffledQuestions.map((q, index) => {
-                  const isAnswered = answers[q.soal_id] !== undefined;
+                  const isAnswered = answers[q.soal_id] !== undefined && answers[q.soal_id] !== '';
                   const isCurrent = index === currentQuestionIndex;
 
                   return (
@@ -338,7 +466,26 @@ export default function TakeQuizPage() {
               </div>
             </div>
 
-            <button onClick={() => setShowConfirmSubmit(true)} className="w-full py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors">
+            {/* Legend */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-xl">
+              <p className="text-xs font-medium text-gray-500 mb-3">Keterangan:</p>
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded bg-cyan-400"></div>
+                  <span className="text-gray-600">Soal saat ini</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded bg-cyan-100"></div>
+                  <span className="text-gray-600">Sudah dijawab</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded bg-gray-100"></div>
+                  <span className="text-gray-600">Belum dijawab</span>
+                </div>
+              </div>
+            </div>
+
+            <button onClick={() => setShowConfirmSubmit(true)} disabled={submitting} className="w-full py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50">
               Kumpulkan
             </button>
 
@@ -357,14 +504,21 @@ export default function TakeQuizPage() {
             <p className="text-gray-600 text-center mb-2">
               Anda telah menjawab {answeredCount} dari {totalQuestions} soal.
             </p>
-            {answeredCount < totalQuestions && <p className="text-amber-600 text-sm text-center mb-6">Masih ada {totalQuestions - answeredCount} soal yang belum dijawab!</p>}
+            {answeredCount < totalQuestions && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                <p className="text-amber-700 text-sm text-center flex items-center justify-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  Masih ada {totalQuestions - answeredCount} soal yang belum dijawab!
+                </p>
+              </div>
+            )}
             <p className="text-gray-600 text-center mb-6">Apakah Anda yakin ingin mengumpulkan jawaban?</p>
 
             <div className="flex gap-4">
-              <button onClick={() => setShowConfirmSubmit(false)} className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-full transition-colors">
+              <button onClick={() => setShowConfirmSubmit(false)} disabled={submitting} className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-full transition-colors disabled:opacity-50">
                 Batal
               </button>
-              <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50">
+              <button onClick={() => handleSubmit(false)} disabled={submitting} className="flex-1 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50">
                 {submitting ? 'Mengumpulkan...' : 'Ya, Kumpulkan'}
               </button>
             </div>

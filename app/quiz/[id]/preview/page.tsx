@@ -36,6 +36,7 @@ export default function PreviewQuizPage() {
       const res = await fetch(`/api/quiz/${id}`);
       if (res.ok) {
         const data = await res.json();
+        console.log('Quiz data:', data); // Debug: lihat di console
         setQuiz(data.kuis);
         setQuestions(data.soal || []);
         setAuthorName(data.pembuat);
@@ -130,13 +131,11 @@ export default function PreviewQuizPage() {
 
   const formatText = (text?: string) => {
     if (!text) return null;
-    // Split by <br>, <br/>, or newline
     const lines = text.split(/<br\s*\/?>|\n/g);
 
     return (
       <>
         {lines.map((line, i) => {
-          // Split by bold markdown **text**
           const parts = line.split(/(\*\*.*?\*\*)/g);
           return (
             <span key={i}>
@@ -171,26 +170,21 @@ export default function PreviewQuizPage() {
       {/* Header */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          {/* Back to Home */}
           <button onClick={handleBack} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
             <ArrowLeft className="w-5 h-5" />
             <span className="font-semibold text-lg">Back to Home</span>
           </button>
 
-          {/* Right Side - Navbar Items */}
           <div className="flex items-center gap-3">
-            {/* Notification */}
             <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
               <Bell className="w-5 h-5 text-gray-500" />
             </button>
 
-            {/* Profile */}
             <div className="relative">
               <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center justify-center w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 hover:border-cyan-400 transition-colors">
                 <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-medium text-sm">{getInitials(user?.nama)}</div>
               </button>
 
-              {/* Dropdown Menu */}
               {showProfileMenu && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
                   <div className="px-4 py-2 border-b border-gray-100">
@@ -230,6 +224,7 @@ export default function PreviewQuizPage() {
               <h3 className="font-bold text-gray-800 mb-4 text-lg">Soal {index + 1}.</h3>
               <div className="text-gray-700 mb-6 leading-relaxed">{formatText(q.teks_soal)}</div>
 
+              {/* Pilihan Ganda Options */}
               {q.tipe_soal === 'pilihan_ganda' && q.pilihan && (
                 <div className="space-y-4 mb-8">
                   {q.pilihan.map((p: any, pIndex: number) => {
@@ -244,6 +239,7 @@ export default function PreviewQuizPage() {
                 </div>
               )}
 
+              {/* Jawaban Benar untuk Pilihan Ganda */}
               {q.tipe_soal === 'pilihan_ganda' && q.pilihan && (
                 <div className="mb-6">
                   <p className="text-sm text-gray-500 mb-2">Jawaban Benar</p>
@@ -254,18 +250,10 @@ export default function PreviewQuizPage() {
                 </div>
               )}
 
-              {q.tipe_soal === 'uraian' && q.kunci_jawaban && (
+              {/* PENJELASAN DARI GEMINI - TAMPIL UNTUK SEMUA TIPE SOAL */}
+              {q.kunci_jawaban?.jawaban_text && (
                 <div className="mb-6">
-                  <p className="text-sm text-gray-500 mb-2">Kunci Jawaban / Penjelasan</p>
-                  <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
-                    <div className="text-emerald-800 text-sm leading-relaxed">{formatText(q.kunci_jawaban.jawaban_text)}</div>
-                  </div>
-                </div>
-              )}
-
-              {q.tipe_soal === 'pilihan_ganda' && q.kunci_jawaban && q.kunci_jawaban.jawaban_text && (
-                <div className="mb-6">
-                  <p className="text-sm text-gray-500 mb-2">Penjelasan</p>
+                  <p className="text-sm text-gray-500 mb-2">Penjelasan Jawaban</p>
                   <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
                     <div className="text-emerald-800 text-sm leading-relaxed">{formatText(q.kunci_jawaban.jawaban_text)}</div>
                   </div>

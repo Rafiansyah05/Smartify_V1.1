@@ -18,9 +18,12 @@ export default function DashboardPage() {
         if (res.ok) {
           const data = await res.json();
           setQuizzes(data.quizzes || []);
+        } else if (res.status === 401) {
+          // Redirect to login if unauthorized
+          window.location.href = '/auth/login';
         }
       } catch (err) {
-        console.error(err);
+        console.error('Fetch quizzes error:', err);
       } finally {
         setLoading(false);
       }
@@ -91,7 +94,16 @@ export default function DashboardPage() {
       ) : (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5' : 'flex flex-col gap-4'}>
           {filteredQuizzes.map((quiz) => (
-            <QuizCard key={quiz.kuis_id} id={quiz.kuis_id} title={quiz.judul} totalSoal={quiz.total_soal} tanggal={formatDate(quiz.created_at)} copyright={quiz.kelas || 'Smartify Quiz'} status={quiz.status || 'draft'} jumlahPeserta={0} />
+            <QuizCard
+              key={quiz.kuis_id}
+              id={quiz.kuis_id.toString()}
+              title={quiz.judul}
+              totalSoal={quiz.total_soal}
+              tanggal={formatDate(quiz.created_at)}
+              copyright={quiz.kelas || 'Smartify Quiz'}
+              status={quiz.status || 'draft'}
+              jumlahPeserta={0}
+            />
           ))}
         </div>
       )}

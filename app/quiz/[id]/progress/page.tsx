@@ -1,154 +1,116 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Bell, Clock, RefreshCw, Filter, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { ArrowLeft, RefreshCw, Clock, CheckCircle2, Award, TrendingUp, Users, FileText } from 'lucide-react';
 
 interface Participant {
   peserta_id: string;
   nama_siswa: string;
-  status: 'sedang_mengerjakan' | 'selesai' | string;
-  nilai?: number;
-  waktu_mulai?: string;
-  waktu_selesai?: string;
+  status: 'selesai' | 'sedang_mengerjakan';
+  nilai: number | null;
+  answered_count: number;
+  total_questions: number;
+  progress_percent: number;
+  durasi_pengerjaan: number | null;
+  waktu_mulai: string | null;
+  waktu_selesai: string | null;
 }
 
-export default function QuizProgressPage() {
+interface Statistics {
+  totalParticipants: number;
+  completedCount: number;
+  inProgressCount: number;
+  avgScore: number;
+  highestScore: number;
+  lowestScore: number;
+  passedCount: number;
+  failedCount: number;
+}
+
+export default function ProgressPage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { id } = params;
-  const qrToken = searchParams.get('token');
 
   const [quiz, setQuiz] = useState<any>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [user, setUser] = useState<any>(null);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [timeRemaining, setTimeRemaining] = useState<number>(0);
-  const [quizStartTime, setQuizStartTime] = useState<Date | null>(null);
 
-  const itemsPerPage = 8;
-  const isTeacher = useMemo(() => user?.role === 'guru' || user?.role === 'admin', [user]);
+  const fetchProgress = useCallback(
+    async (showLoading = true) => {
+      try {
+        if (showLoading) {
+          setLoading(true);
+        } else {
+          setRefreshing(true);
+        }
 
-  // Filter participants based on search
-  const filteredParticipants = useMemo(() => {
-    return participants.filter((p) => p.nama_siswa.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [participants, searchQuery]);
+        const res = await fetch(`/api/quiz/${id}/progress`, { credentials: 'include' });
+        const data = await res.json();
 
-  // Pagination
-  const totalPages = Math.ceil(filteredParticipants.length / itemsPerPage);
-  const paginatedParticipants = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredParticipants.slice(start, start + itemsPerPage);
-  }, [filteredParticipants, currentPage]);
+        if (!res.ok) {
+          setError(data.error || 'Gagal memuat progress');
+          return;
+        }
 
-  const fetchProgress = async (showLoading = true) => {
-    try {
-      if (showLoading) {
-        setLoading(true);
-      } else {
-        setRefreshing(true);
-      }
-
-      // Fetch quiz data
-      const quizRes = await fetch(`/api/quiz/${id}`, { credentials: 'include' });
-      const quizData = await quizRes.json();
-
-      if (!quizRes.ok) {
-        setError(quizData.error || 'Gagal memuat kuis');
-        return;
-      }
-
-      setQuiz(quizData.kuis);
-
-      // Fetch waiting room for participants
-      const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
-      if (qrToken) url.searchParams.set('token', qrToken);
-      const roomRes = await fetch(url.toString(), { credentials: 'include' });
-      const roomData = await roomRes.json();
-
-      if (roomRes.ok) {
-        setUser(roomData.user);
-        // Mock progress data - in real implementation this would come from API
-        const participantsWithProgress = (roomData.participants || []).map((p: any, index: number) => ({
-          ...p,
-          status: Math.random() > 0.3 ? 'sedang_mengerjakan' : 'selesai',
-          nilai: Math.floor(Math.random() * 100),
-        }));
-        setParticipants(participantsWithProgress);
-
-        // Set quiz start time if not already set
-        if (!quizStartTime && quizData.kuis?.durasi_menit) {
-          setQuizStartTime(new Date());
-          setTimeRemaining(quizData.kuis.durasi_menit * 60);
+        setQuiz(data.quiz);
+        setParticipants(data.participants || []);
+        setStatistics(data.statistics);
+      } catch (err) {
+        console.error(err);
+        setError('Terjadi kesalahan saat memuat data');
+      } finally {
+        if (showLoading) {
+          setLoading(false);
+        } else {
+          setRefreshing(false);
         }
       }
-    } catch (err) {
-      console.error(err);
-      setError('Terjadi kesalahan saat memuat data');
-    } finally {
-      if (showLoading) {
-        setLoading(false);
-      } else {
-        setRefreshing(false);
-      }
-    }
-  };
-
-  // Timer countdown
-  useEffect(() => {
-    if (timeRemaining <= 0) return;
-
-    const timer = setInterval(() => {
-      setTimeRemaining((prev) => Math.max(0, prev - 1));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeRemaining]);
+    },
+    [id],
+  );
 
   useEffect(() => {
     fetchProgress();
-  }, [id]);
+  }, [fetchProgress]);
 
-  // Redirect students to take page
-  useEffect(() => {
-    if (!loading && !isTeacher && qrToken) {
-      router.push(`/quiz/${id}/take?token=${qrToken}`);
-    }
-  }, [loading, isTeacher, qrToken, id, router]);
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
+  const formatDuration = (seconds: number | null | undefined) => {
+    if (!seconds) return '00:00:00';
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const getInitials = (name?: string) => {
-    if (!name) return 'UN';
-    const parts = name.split(' ');
-    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    return name.substring(0, 2).toUpperCase();
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      router.push('/auth/login');
-    } catch (err) {
-      console.error('Logout error:', err);
+    if (hours > 0) {
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getStatusBadge = (status: string) => {
     if (status === 'selesai') {
-      return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Selesai</span>;
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs">
+          <CheckCircle2 className="w-3 h-3" />
+          Selesai
+        </span>
+      );
     }
-    return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Proses</span>;
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs">
+        <Clock className="w-3 h-3" />
+        Mengerjakan
+      </span>
+    );
+  };
+
+  const getScoreColor = (score: number | null) => {
+    if (score === null) return 'text-gray-400';
+    if (score >= 80) return 'text-emerald-600';
+    if (score >= 60) return 'text-amber-600';
+    return 'text-red-600';
   };
 
   if (loading) {
@@ -180,147 +142,142 @@ export default function QuizProgressPage() {
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <button onClick={() => router.push('/dashboard')} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
             <ArrowLeft className="w-5 h-5" />
-            <span className="font-semibold text-lg">Back to Home</span>
+            <span className="font-semibold text-lg">Back to Dashboard</span>
           </button>
 
           <div className="flex items-center gap-3">
-            <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
-              <Bell className="w-5 h-5 text-gray-500" />
+            <button onClick={() => fetchProgress(false)} disabled={refreshing} className="p-2.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50">
+              <RefreshCw className={`w-5 h-5 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
-
-            <div className="relative">
-              <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center justify-center w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 hover:border-cyan-400 transition-colors">
-                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-medium text-sm">{getInitials(user?.nama)}</div>
-              </button>
-
-              {showProfileMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
-                  <div className="px-4 py-2 border-b border-gray-100">
-                    <p className="text-sm font-medium text-gray-800 truncate">{user?.nama || 'User'}</p>
-                    <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
-                  </div>
-                  <button onClick={handleLogout} className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-gray-50 transition-colors">
-                    Logout
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-6 mt-8">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          {/* Header Section */}
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
-            <div>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-                GENERATE QUIZ {'>'} PREVIEW {'>'} PROGRESS QUIZ
-              </p>
-              <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
-            </div>
+      <div className="max-w-7xl mx-auto px-6 mt-8">
+        {/* Quiz Title */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Progress Kuis'}</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Total {quiz?.total_questions || 0} soal | Durasi {quiz?.durasi_menit || 0} menit | KKM {quiz?.kkm || 70}
+          </p>
+        </div>
 
-            <div className="flex items-center gap-4">
-              {/* Status Badge */}
-              <div className="px-5 py-2.5 bg-amber-50 border border-amber-200 rounded-full">
-                <span className="text-amber-600 font-medium">Dalam pengerjaan</span>
-              </div>
-
-              {/* Timer */}
-              <div className="flex items-center gap-2 px-5 py-2.5 bg-gray-100 rounded-full">
-                <Clock className="w-5 h-5 text-gray-600" />
-                <span className="font-bold text-gray-800">{formatTime(timeRemaining)}</span>
-              </div>
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
+          <div className="bg-white rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center gap-2 text-gray-500 mb-1">
+              <Users className="w-4 h-4" />
+              <span className="text-xs">Total</span>
             </div>
+            <p className="text-2xl font-bold text-gray-800">{statistics?.totalParticipants || 0}</p>
+            <p className="text-xs text-gray-400">Peserta</p>
           </div>
 
-          {/* Search and Actions */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Cari nama siswa..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-              />
+          <div className="bg-white rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center gap-2 text-emerald-500 mb-1">
+              <CheckCircle2 className="w-4 h-4" />
+              <span className="text-xs">Selesai</span>
             </div>
-
-            <div className="flex items-center gap-3">
-              <button onClick={() => fetchProgress(false)} disabled={refreshing || loading} className="p-3 bg-cyan-400 hover:bg-cyan-500 text-white rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                <RefreshCw className="w-5 h-5" />
-              </button>
-              <button className="p-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors">
-                <Filter className="w-5 h-5" />
-              </button>
-            </div>
+            <p className="text-2xl font-bold text-emerald-600">{statistics?.completedCount || 0}</p>
+            <p className="text-xs text-gray-400">Peserta</p>
           </div>
 
-          {/* Table */}
+          <div className="bg-white rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center gap-2 text-amber-500 mb-1">
+              <Clock className="w-4 h-4" />
+              <span className="text-xs">Mengerjakan</span>
+            </div>
+            <p className="text-2xl font-bold text-amber-600">{statistics?.inProgressCount || 0}</p>
+            <p className="text-xs text-gray-400">Peserta</p>
+          </div>
+
+          <div className="bg-white rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center gap-2 text-cyan-500 mb-1">
+              <TrendingUp className="w-4 h-4" />
+              <span className="text-xs">Rata-rata</span>
+            </div>
+            <p className="text-2xl font-bold text-cyan-600">{statistics?.avgScore || 0}</p>
+            <p className="text-xs text-gray-400">Nilai</p>
+          </div>
+
+          <div className="bg-white rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center gap-2 text-emerald-500 mb-1">
+              <Award className="w-4 h-4" />
+              <span className="text-xs">Tertinggi</span>
+            </div>
+            <p className="text-2xl font-bold text-emerald-600">{statistics?.highestScore || 0}</p>
+            <p className="text-xs text-gray-400">Nilai</p>
+          </div>
+
+          <div className="bg-white rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center gap-2 text-red-500 mb-1">
+              <FileText className="w-4 h-4" />
+              <span className="text-xs">Lulus</span>
+            </div>
+            <p className="text-2xl font-bold text-red-600">{statistics?.passedCount || 0}</p>
+            <p className="text-xs text-gray-400">Peserta</p>
+          </div>
+        </div>
+
+        {/* Participants Table */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-cyan-500 uppercase tracking-wider">NO</th>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-cyan-500 uppercase tracking-wider">Nama Lengkap</th>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-cyan-500 uppercase tracking-wider">Nilai Saat Ini</th>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-cyan-500 uppercase tracking-wider">Status</th>
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left py-4 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
+                  <th className="text-left py-4 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Siswa</th>
+                  <th className="text-center py-4 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="text-center py-4 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                  <th className="text-center py-4 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Nilai</th>
+                  <th className="text-center py-4 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Durasi</th>
                 </tr>
               </thead>
-              <tbody>
-                {paginatedParticipants.length > 0 ? (
-                  paginatedParticipants.map((participant, index) => (
-                    <tr key={participant.peserta_id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-4 text-sm text-gray-500">{(currentPage - 1) * itemsPerPage + index + 1}</td>
-                      <td className="px-4 py-4 text-sm font-medium text-gray-800">{participant.nama_siswa}</td>
-                      <td className="px-4 py-4 text-sm font-bold text-gray-800">{participant.nilai ?? '-'}</td>
-                      <td className="px-4 py-4">{getStatusBadge(participant.status)}</td>
-                    </tr>
-                  ))
-                ) : (
+              <tbody className="divide-y divide-gray-100">
+                {participants.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-12 text-center text-gray-500">
-                      {searchQuery ? 'Tidak ada siswa yang ditemukan' : 'Belum ada siswa yang mengerjakan kuis'}
+                    <td colSpan={6} className="text-center py-12 text-gray-500">
+                      Belum ada siswa yang bergabung
                     </td>
                   </tr>
+                ) : (
+                  participants.map((participant, index) => (
+                    <tr key={participant.peserta_id} className="hover:bg-gray-50 transition-colors">
+                      <td className="py-4 px-6">
+                        <span
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                            index === 0 ? 'bg-yellow-400 text-gray-800' : index === 1 ? 'bg-gray-300 text-gray-800' : index === 2 ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {index + 1}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-medium text-gray-800">{participant.nama_siswa}</span>
+                      </td>
+                      <td className="py-4 px-6 text-center">{getStatusBadge(participant.status)}</td>
+                      <td className="py-4 px-6">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2">
+                            <div className="bg-cyan-400 rounded-full h-2 transition-all duration-300" style={{ width: `${participant.progress_percent}%` }} />
+                          </div>
+                          <span className="text-xs text-gray-500 min-w-[45px]">
+                            {participant.answered_count}/{participant.total_questions}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <span className={`font-bold text-lg ${getScoreColor(participant.nilai)}`}>{participant.nilai !== null ? participant.nilai : '-'}</span>
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <span className="text-sm text-gray-600 font-mono">{formatDuration(participant.durasi_pengerjaan)}</span>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
           </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-6 pt-6 border-t border-gray-100">
-              <p className="text-sm text-gray-500">
-                Menampilkan {currentPage} dari {totalPages} halaman
-              </p>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="w-5 h-5 text-gray-600" />
-                </button>
-
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <button key={page} onClick={() => setCurrentPage(page)} className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${page === currentPage ? 'bg-cyan-400 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                    {page}
-                  </button>
-                ))}
-
-                <button
-                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                  className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronRight className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

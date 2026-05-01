@@ -13,14 +13,25 @@ export default function GenerateQuizPage() {
   const [duration, setDuration] = useState(45);
   const [kkm, setKkm] = useState(75);
   const [title, setTitle] = useState('');
-  
+
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Hitung total soal berdasarkan tipe yang dipilih
+  const getTotalQuestions = () => {
+    if (quizType === 'pilihan_ganda') {
+      return multipleChoiceCount;
+    } else if (quizType === 'isian') {
+      return shortAnswerCount;
+    } else {
+      return multipleChoiceCount + shortAnswerCount;
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -65,6 +76,17 @@ export default function GenerateQuizPage() {
       return;
     }
 
+    // Validasi jumlah soal
+    const totalSoal = getTotalQuestions();
+    if (totalSoal === 0) {
+      setError('Jumlah soal minimal 1');
+      return;
+    }
+    if (totalSoal > 100) {
+      setError('Jumlah soal maksimal 100');
+      return;
+    }
+
     setLoading(true);
     setLoadingStep(1);
     setError('');
@@ -83,9 +105,9 @@ export default function GenerateQuizPage() {
       formData.append('title', title);
       formData.append('type', quizType);
       formData.append('difficulty', difficulty);
-      formData.append('totalQuestions', (multipleChoiceCount + shortAnswerCount).toString());
-      formData.append('multipleChoiceCount', multipleChoiceCount.toString());
-      formData.append('shortAnswerCount', shortAnswerCount.toString());
+      formData.append('totalQuestions', totalSoal.toString());
+      formData.append('multipleChoiceCount', quizType === 'pilihan_ganda' ? totalSoal.toString() : multipleChoiceCount.toString());
+      formData.append('shortAnswerCount', quizType === 'isian' ? totalSoal.toString() : shortAnswerCount.toString());
       formData.append('duration', duration.toString());
       formData.append('kkm', kkm.toString());
 
@@ -109,14 +131,7 @@ export default function GenerateQuizPage() {
     }
   };
 
-  const loadingStepsText = [
-    '',
-    'Menyiapkan dokumen...',
-    'Membaca konten PDF...',
-    'Menganalisis materi dengan AI...',
-    'Menyusun pertanyaan & kunci jawaban...',
-    'Finalisasi kuis...'
-  ];
+  const loadingStepsText = ['', 'Menyiapkan dokumen...', 'Membaca konten PDF...', 'Menganalisis materi...', 'Menyusun pertanyaan & kunci jawaban...', 'Finalisasi kuis...'];
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -132,41 +147,27 @@ export default function GenerateQuizPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           {/* Section Header */}
           <div className="flex items-center gap-3 mb-6">
-            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-sm font-semibold">
-              1
-            </div>
+            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-sm font-semibold">1</div>
             <h2 className="text-lg font-semibold text-gray-900">Sumber Materi</h2>
           </div>
 
           {/* Upload Area */}
-          <input 
-            type="file" 
-            accept=".pdf" 
-            className="hidden" 
-            ref={fileInputRef} 
-            onChange={handleFileChange}
-          />
-          
-          <div 
+          <input type="file" accept=".pdf" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
+
+          <div
             onClick={() => fileInputRef.current?.click()}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200 ${
-              isDragging 
-                ? 'border-primary bg-primary/5' 
-                : file 
-                  ? 'border-primary bg-primary/5' 
-                  : 'border-gray-200 hover:border-gray-300'
+              isDragging ? 'border-primary bg-primary/5' : file ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
             }`}
           >
             <div className="flex flex-col items-center">
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${
-                file ? 'bg-primary/10' : 'bg-gray-50'
-              }`}>
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${file ? 'bg-primary/10' : 'bg-gray-50'}`}>
                 <Upload className={`w-7 h-7 ${file ? 'text-primary' : 'text-primary/60'}`} />
               </div>
-              
+
               {file ? (
                 <>
                   <p className="text-gray-900 font-medium mb-1">{file.name}</p>
@@ -176,14 +177,10 @@ export default function GenerateQuizPage() {
                 <>
                   <p className="text-gray-800 font-medium mb-1">Tarik file PDF ke sini</p>
                   <p className="text-sm text-gray-400 mb-4">atau klik untuk memilih dari komputer</p>
-                  
+
                   <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-full">
-                      MAX 10MB
-                    </span>
-                    <span className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-full">
-                      PDF ONLY
-                    </span>
+                    <span className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-full">MAX 10MB</span>
+                    <span className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-full">PDF ONLY</span>
                   </div>
                 </>
               )}
@@ -193,32 +190,24 @@ export default function GenerateQuizPage() {
           {/* Tips Box */}
           <div className="mt-4 p-4 bg-amber-50 rounded-xl flex gap-3">
             <Lightbulb className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-700">
-              Tips: Gunakan materi yang bersih dari gambar agar mendapatkan hasil yang lebih baik
-            </p>
+            <p className="text-sm text-amber-700">Tips: Gunakan materi yang bersih dari gambar agar mendapatkan hasil yang lebih baik</p>
           </div>
 
-          {error && (
-            <p className="text-red-500 text-sm mt-3 text-center">{error}</p>
-          )}
+          {error && <p className="text-red-500 text-sm mt-3 text-center">{error}</p>}
         </div>
 
         {/* Card 2: Konfigurasi Kuis */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           {/* Section Header */}
           <div className="flex items-center gap-3 mb-6">
-            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-sm font-semibold">
-              2
-            </div>
+            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-sm font-semibold">2</div>
             <h2 className="text-lg font-semibold text-gray-900">Konfigurasi Kuis</h2>
           </div>
 
           <div className="space-y-5">
             {/* Judul Kuis */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Judul Kuis
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Judul Kuis</label>
               <input
                 type="text"
                 value={title}
@@ -230,9 +219,7 @@ export default function GenerateQuizPage() {
 
             {/* Jenis Soal */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Jenis Soal
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Jenis Soal</label>
               <div className="relative">
                 <select
                   value={quizType}
@@ -247,53 +234,109 @@ export default function GenerateQuizPage() {
               </div>
             </div>
 
-            {/* Jumlah Soal - Only show for campuran */}
-            {quizType === 'campuran' && (
-              <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                    JUMLAH PILIHAN GANDA
-                  </label>
+            {/* Jumlah Soal - Dynamic based on quiz type */}
+            <div className="space-y-4">
+              {/* Label Jumlah Soal */}
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {quizType === 'pilihan_ganda' && 'Jumlah Soal Pilihan Ganda'}
+                {quizType === 'isian' && 'Jumlah Soal Isian Singkat'}
+                {quizType === 'campuran' && 'Komposisi Soal'}
+              </label>
+
+              {/* Campuran: tampilkan 2 input */}
+              {quizType === 'campuran' && (
+                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">PILIHAN GANDA</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={multipleChoiceCount}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          setMultipleChoiceCount(Math.min(100, Math.max(0, val)));
+                        }}
+                        min={0}
+                        max={100}
+                        className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">ISIAN SINGKAT</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={shortAnswerCount}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          setShortAnswerCount(Math.min(100, Math.max(0, val)));
+                        }}
+                        min={0}
+                        max={100}
+                        className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pilihan Ganda saja: tampilkan 1 input */}
+              {quizType === 'pilihan_ganda' && (
+                <div className="p-4 bg-gray-50 rounded-xl">
                   <div className="relative">
                     <input
                       type="number"
-                      value={isNaN(multipleChoiceCount) ? '' : multipleChoiceCount}
-                      onChange={(e) => setMultipleChoiceCount(e.target.value ? parseInt(e.target.value) : 0)}
-                      min={0}
-                      max={50}
+                      value={multipleChoiceCount}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        setMultipleChoiceCount(Math.min(100, Math.max(1, val)));
+                      }}
+                      min={1}
+                      max={100}
                       className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">
-                      SOAL
-                    </span>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
                   </div>
+                  <p className="text-xs text-gray-400 mt-2 text-center">Minimal 1 soal, maksimal 100 soal</p>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                    JUMLAH ISIAN SINGKAT
-                  </label>
+              )}
+
+              {/* Isian saja: tampilkan 1 input */}
+              {quizType === 'isian' && (
+                <div className="p-4 bg-gray-50 rounded-xl">
                   <div className="relative">
                     <input
                       type="number"
-                      value={isNaN(shortAnswerCount) ? '' : shortAnswerCount}
-                      onChange={(e) => setShortAnswerCount(e.target.value ? parseInt(e.target.value) : 0)}
-                      min={0}
-                      max={50}
+                      value={shortAnswerCount}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        setShortAnswerCount(Math.min(100, Math.max(1, val)));
+                      }}
+                      min={1}
+                      max={100}
                       className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">
-                      SOAL
-                    </span>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
                   </div>
+                  <p className="text-xs text-gray-400 mt-2 text-center">Minimal 1 soal, maksimal 100 soal</p>
                 </div>
-              </div>
-            )}
+              )}
+
+              {/* Total soal info (hanya untuk campuran) */}
+              {quizType === 'campuran' && (
+                <div className="flex items-center justify-between px-2">
+                  <span className="text-sm text-gray-500">Total Soal:</span>
+                  <span className="text-lg font-bold text-primary">{multipleChoiceCount + shortAnswerCount} soal</span>
+                </div>
+              )}
+            </div>
 
             {/* Tingkat Kesulitan */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tingkat Kesulitan
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tingkat Kesulitan</label>
               <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl">
                 {[
                   { value: 'easy', label: 'EASY' },
@@ -304,11 +347,7 @@ export default function GenerateQuizPage() {
                     key={option.value}
                     type="button"
                     onClick={() => setDifficulty(option.value)}
-                    className={`py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-                      difficulty === option.value
-                        ? 'bg-white text-primary shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
+                    className={`py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${difficulty === option.value ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                   >
                     {option.label}
                   </button>
@@ -319,48 +358,46 @@ export default function GenerateQuizPage() {
             {/* Durasi & KKM */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Durasi
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Durasi</label>
                 <div className="relative">
                   <input
                     type="number"
-                    value={isNaN(duration) ? '' : duration}
-                    onChange={(e) => setDuration(e.target.value ? parseInt(e.target.value) : 0)}
+                    value={duration}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setDuration(Math.min(180, Math.max(1, val)));
+                    }}
                     min={1}
                     max={180}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">
-                    MENIT
-                  </span>
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">MENIT</span>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  KKM
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">KKM</label>
                 <div className="relative">
                   <input
                     type="number"
-                    value={isNaN(kkm) ? '' : kkm}
-                    onChange={(e) => setKkm(e.target.value ? parseInt(e.target.value) : 0)}
+                    value={kkm}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setKkm(Math.min(100, Math.max(0, val)));
+                    }}
                     min={0}
                     max={100}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">
-                    SKOR
-                  </span>
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">SKOR</span>
                 </div>
               </div>
             </div>
 
             {/* Generate Button */}
             <div className="flex justify-end pt-4">
-              <button 
+              <button
                 onClick={handleGenerate}
-                disabled={loading || !file || !title}
+                disabled={loading || !file || !title || getTotalQuestions() === 0}
                 className="flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/90 text-white font-medium rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/25"
               >
                 <Pencil className="w-4 h-4" />
@@ -377,48 +414,29 @@ export default function GenerateQuizPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 relative overflow-hidden">
             {/* Progress Bar Top */}
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gray-100">
-              <div 
-                className="h-full bg-primary transition-all duration-500 ease-out"
-                style={{ width: `${(loadingStep / 5) * 100}%` }}
-              />
+              <div className="h-full bg-primary transition-all duration-500 ease-out" style={{ width: `${(loadingStep / 5) * 100}%` }} />
             </div>
 
             <div className="text-center mb-8 mt-4">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-6">
-                {loadingStep === 5 ? (
-                  <CheckCircle2 className="w-8 h-8 text-primary" />
-                ) : (
-                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                )}
+                {loadingStep === 5 ? <CheckCircle2 className="w-8 h-8 text-primary" /> : <Loader2 className="w-8 h-8 text-primary animate-spin" />}
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Membuat Kuis AI</h3>
-              <p className="text-gray-500 text-sm">Mohon tunggu, AI sedang memproses materi Anda.</p>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Generate Quiz</h3>
+              <p className="text-gray-500 text-sm">Mohon tunggu, Smartify sedang memproses materi Anda.</p>
             </div>
 
             <div className="space-y-4">
               {[1, 2, 3, 4, 5].map((stepIndex) => (
                 <div key={stepIndex} className="flex items-center gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-colors duration-300 ${
-                    loadingStep > stepIndex 
-                      ? 'bg-primary border-primary text-white' 
-                      : loadingStep === stepIndex
-                        ? 'border-primary text-primary'
-                        : 'border-gray-200 text-gray-300'
-                  }`}>
-                    {loadingStep > stepIndex ? (
-                      <CheckCircle2 className="w-4 h-4" />
-                    ) : (
-                      <span className="text-xs font-bold">{stepIndex}</span>
-                    )}
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-colors duration-300 ${
+                      loadingStep > stepIndex ? 'bg-primary border-primary text-white' : loadingStep === stepIndex ? 'border-primary text-primary' : 'border-gray-200 text-gray-300'
+                    }`}
+                  >
+                    {loadingStep > stepIndex ? <CheckCircle2 className="w-4 h-4" /> : <span className="text-xs font-bold">{stepIndex}</span>}
                   </div>
-                  <span className={`text-sm font-medium transition-colors duration-300 ${
-                    loadingStep >= stepIndex ? 'text-gray-800' : 'text-gray-400'
-                  }`}>
-                    {loadingStepsText[stepIndex]}
-                  </span>
-                  {loadingStep === stepIndex && (
-                    <Loader2 className="w-4 h-4 text-primary animate-spin ml-auto" />
-                  )}
+                  <span className={`text-sm font-medium transition-colors duration-300 ${loadingStep >= stepIndex ? 'text-gray-800' : 'text-gray-400'}`}>{loadingStepsText[stepIndex]}</span>
+                  {loadingStep === stepIndex && <Loader2 className="w-4 h-4 text-primary animate-spin ml-auto" />}
                 </div>
               ))}
             </div>

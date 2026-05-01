@@ -93,6 +93,7 @@ export default function WaitingRoomPage() {
         setStartError(data.error || 'Gagal memulai kuis');
         return;
       }
+      // Redirect teacher to progress page
       router.push(`/quiz/${id}/progress`);
     } catch (err) {
       console.error(err);
@@ -101,6 +102,44 @@ export default function WaitingRoomPage() {
       setStarting(false);
     }
   };
+
+  // Check quiz status untuk redirect siswa (HANYA ini yang auto cek, tanpa polling participant)
+  const checkQuizStatus = async () => {
+    if (!isTeacher && qrToken && joinedParticipant && quiz?.status !== 'ongoing') {
+      try {
+        const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
+        if (qrToken) url.searchParams.set('token', qrToken);
+        const res = await fetch(url.toString(), { credentials: 'include' });
+        const data = await res.json();
+
+        if (data.quiz?.status === 'ongoing') {
+          const participantData = {
+            ...joinedParticipant,
+            quizStartTime: new Date().toISOString(),
+          };
+          if (storageKey && typeof window !== 'undefined') {
+            window.localStorage.setItem(storageKey, JSON.stringify(participantData));
+          }
+          router.push(`/quiz/${id}/take?token=${qrToken}`);
+        }
+      } catch (err) {
+        console.error('Error checking quiz status:', err);
+      }
+    }
+  };
+
+  // Polling ONLY untuk cek status quiz (bukan untuk update participant list)
+  useEffect(() => {
+    if (loading || isTeacher || !qrToken || !joinedParticipant) return;
+    if (quiz?.status === 'ongoing') return; // Already redirecting
+
+    // Cek status quiz setiap 3 detik
+    const pollInterval = setInterval(() => {
+      checkQuizStatus();
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [loading, isTeacher, qrToken, joinedParticipant, quiz?.status]);
 
   useEffect(() => {
     if (!storageKey) return;
@@ -115,12 +154,6 @@ export default function WaitingRoomPage() {
       }
     }
   }, [storageKey]);
-
-  useEffect(() => {
-    if (!loading && !isTeacher && qrToken && quiz?.status === 'ongoing') {
-      router.push(`/quiz/${id}/take?token=${qrToken}`);
-    }
-  }, [loading, isTeacher, qrToken, quiz, id, router]);
 
   useEffect(() => {
     fetchRoom();
@@ -256,7 +289,7 @@ export default function WaitingRoomPage() {
     </div>
   );
 
-  // Student Waiting View - after joined
+  // Student Waiting View - after joined (NO AUTO REFRESH participant)
   const renderStudentWaitingView = () => (
     <div className="min-h-screen bg-gray-50 pb-16">
       {/* Header */}
@@ -267,6 +300,7 @@ export default function WaitingRoomPage() {
             <span className="font-semibold text-lg">Back to Home</span>
           </button>
           <div className="flex items-center gap-3">
+            {/* Tombol refresh tetap ada tapi hanya untuk manual refresh */}
             <button onClick={() => fetchRoom(false)} disabled={refreshing || loading} className="p-2.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               <RefreshCw className="w-5 h-5 text-gray-500" />
             </button>
@@ -303,7 +337,7 @@ export default function WaitingRoomPage() {
             </div>
           </div>
 
-          {/* Student List */}
+          {/* Student List - statis, hanya berubah saat manual refresh */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">{participants.length} Siswa Bergabung</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -321,8 +355,18 @@ export default function WaitingRoomPage() {
 
           {/* Waiting Message */}
           <div className="bg-cyan-50 rounded-xl p-6 text-center border border-cyan-100">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
             <p className="text-cyan-800 font-medium">Anda telah bergabung sebagai {joinedParticipant?.nama_siswa}</p>
             <p className="text-cyan-600 text-sm mt-2">Silakan tunggu guru memulai kuis...</p>
+            <p className="text-cyan-500 text-xs mt-1">Halaman akan otomatis berpindah saat kuis dimulai</p>
+            <button onClick={() => fetchRoom(false)} disabled={refreshing} className="mt-4 inline-flex items-center gap-2 text-xs text-cyan-600 hover:text-cyan-700 transition-colors">
+              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh daftar peserta
+            </button>
           </div>
         </div>
       </div>
@@ -341,8 +385,9 @@ export default function WaitingRoomPage() {
           </button>
 
           <div className="flex items-center gap-3">
+            {/* Tombol refresh manual untuk guru */}
             <button onClick={() => fetchRoom(false)} disabled={refreshing || loading} className="p-2.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              <RefreshCw className="w-5 h-5 text-gray-500" />
+              <RefreshCw className={`w-5 h-5 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
             <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
               <Bell className="w-5 h-5 text-gray-500" />
@@ -445,7 +490,13 @@ export default function WaitingRoomPage() {
 
             {/* Participants Section */}
             <div>
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">{participants.length} Siswa Bergabung</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-800">{participants.length} Siswa Bergabung</h2>
+                <button onClick={() => fetchRoom(false)} disabled={refreshing} className="inline-flex items-center gap-2 text-xs text-cyan-600 hover:text-cyan-700 transition-colors">
+                  <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
 
               {participants.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -453,7 +504,7 @@ export default function WaitingRoomPage() {
                     <div key={participant.peserta_id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
                       <div>
                         <p className="font-medium text-gray-800 text-sm">{participant.nama_siswa}</p>
-                        <span className={`text-xs ${participant.status === 'success' ? 'text-emerald-500' : 'text-amber-500'}`}>{participant.status === 'success' ? 'Ready' : 'Connecting...'}</span>
+                        <span className={`text-xs ${participant.status === 'success' ? 'text-emerald-500' : 'text-amber-500'}`}>{participant.status === 'success' ? 'Ready' : 'Waiting...'}</span>
                       </div>
                       <MoreVertical className="w-4 h-4 text-gray-400" />
                     </div>
