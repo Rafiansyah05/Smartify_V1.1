@@ -3,7 +3,8 @@ import { supabaseServer as supabase } from '@/lib/supabase/server';
 
 export async function DELETE(request: NextRequest, context: any) {
   try {
-    const { soalId } = context.params;
+    const params = await context.params;
+    const { soalId } = params;
 
     // Delete related records first if RLS doesn't cascade
     await supabase.from('pilihan_jawaban').delete().eq('soal_id', soalId);

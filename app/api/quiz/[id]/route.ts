@@ -4,7 +4,8 @@ import { getUserFromToken } from '@/lib/auth/auth-service';
 
 export async function GET(request: NextRequest, context: any) {
   try {
-    const { id } = context.params;
+    const params = await context.params;
+    const { id } = params;
     
     // Auth Check
     const token = request.cookies.get('auth_token')?.value;

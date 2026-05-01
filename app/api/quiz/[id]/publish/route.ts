@@ -3,7 +3,8 @@ import { supabaseServer as supabase } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest, context: any) {
   try {
-    const { id } = context.params;
+    const params = await context.params;
+    const { id } = params;
 
     const { error } = await supabase
       .from('kuis')
