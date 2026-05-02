@@ -1,50 +1,32 @@
-// lib/auth/auth-service.ts
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../supabase/client';
-import { supabaseServer } from '../supabase/server'; // ← IMPORT SERVER CLIENT
+import { supabaseServer } from '../supabase/server';
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 // STEP 1: Initiate Registration
 export async function initiateRegistration(email: string, password: string, nama: string) {
   try {
-    // Cek apakah email sudah terdaftar di users (gunakan supabase biasa)
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('email')
-      .eq('email', email)
-      .single();
+    // Cek apakah email sudah terdaftar di users
+    const { data: existingUser } = await supabase.from('users').select('email').eq('email', email).single();
 
     if (existingUser) {
       throw new Error('Email sudah terdaftar');
     }
 
-    // Hapus data temporary lama yang expired (gunakan supabaseServer)
-    await supabaseServer
-      .from('temporary_registrations')
-      .delete()
-      .lt('expires_at', new Date().toISOString());
+    // Hapus data temporary lama yang expired
+    await supabaseServer.from('temporary_registrations').delete().lt('expires_at', new Date().toISOString());
 
     // Cek apakah sudah ada pending registration
-    const { data: existingTemp } = await supabaseServer
-      .from('temporary_registrations')
-      .select('*')
-      .eq('email', email)
-      .single();
+    const { data: existingTemp } = await supabaseServer.from('temporary_registrations').select('*').eq('email', email).single();
 
     if (existingTemp) {
-      await supabaseServer
-        .from('temporary_registrations')
-        .delete()
-        .eq('email', email);
+      await supabaseServer.from('temporary_registrations').delete().eq('email', email);
     }
 
     // Hapus email_verifications lama
-    await supabaseServer
-      .from('email_verifications')
-      .delete()
-      .eq('email', email);
+    await supabaseServer.from('email_verifications').delete().eq('email', email);
 
     // Generate verification code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -54,33 +36,29 @@ export async function initiateRegistration(email: string, password: string, nama
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Simpan ke temporary_registrations (gunakan supabaseServer)
+    // Simpan ke temporary_registrations
     const tempExpiresAt = new Date();
     tempExpiresAt.setMinutes(tempExpiresAt.getMinutes() + 15);
 
-    const { error: tempError } = await supabaseServer
-      .from('temporary_registrations')
-      .insert({
-        email,
-        password_hash: passwordHash,
-        nama,
-        expires_at: tempExpiresAt.toISOString(),
-      });
+    const { error: tempError } = await supabaseServer.from('temporary_registrations').insert({
+      email,
+      password_hash: passwordHash,
+      nama,
+      expires_at: tempExpiresAt.toISOString(),
+    });
 
     if (tempError) {
       console.error('Temporary registration error:', tempError);
       throw new Error('Gagal menyimpan data sementara: ' + tempError.message);
     }
 
-    // Simpan ke email_verifications (gunakan supabaseServer)
-    const { error: verifError } = await supabaseServer
-      .from('email_verifications')
-      .insert({
-        email,
-        code: verificationCode,
-        expires_at: expiresAt.toISOString(),
-        is_used: false,
-      });
+    // Simpan ke email_verifications
+    const { error: verifError } = await supabaseServer.from('email_verifications').insert({
+      email,
+      code: verificationCode,
+      expires_at: expiresAt.toISOString(),
+      is_used: false,
+    });
 
     if (verifError) {
       console.error('Email verification error:', verifError);
@@ -97,14 +75,8 @@ export async function initiateRegistration(email: string, password: string, nama
 // STEP 2: Verify Email and Create User
 export async function verifyAndCreateUser(email: string, code: string) {
   try {
-    // Cek kode verifikasi (gunakan supabaseServer)
-    const { data: verification, error: verifError } = await supabaseServer
-      .from('email_verifications')
-      .select('*')
-      .eq('email', email)
-      .eq('code', code)
-      .eq('is_used', false)
-      .single();
+    // Cek kode verifikasi
+    const { data: verification, error: verifError } = await supabaseServer.from('email_verifications').select('*').eq('email', email).eq('code', code).eq('is_used', false).single();
 
     if (verifError || !verification) {
       throw new Error('Kode verifikasi tidak valid');
@@ -121,12 +93,8 @@ export async function verifyAndCreateUser(email: string, code: string) {
       throw new Error('Kode verifikasi sudah kadaluarsa');
     }
 
-    // Ambil data temporary (gunakan supabaseServer)
-    const { data: tempData, error: tempError } = await supabaseServer
-      .from('temporary_registrations')
-      .select('*')
-      .eq('email', email)
-      .single();
+    // Ambil data temporary
+    const { data: tempData, error: tempError } = await supabaseServer.from('temporary_registrations').select('*').eq('email', email).single();
 
     if (tempError || !tempData) {
       throw new Error('Data registrasi tidak ditemukan. Silakan registrasi ulang.');
@@ -141,7 +109,7 @@ export async function verifyAndCreateUser(email: string, code: string) {
       throw new Error('Data registrasi sudah kadaluarsa. Silakan registrasi ulang.');
     }
 
-    // Insert ke users (gunakan supabase biasa - sudah ada RLS policy)
+    // Insert ke users
     const { data: newUser, error: userError } = await supabase
       .from('users')
       .insert({
@@ -158,17 +126,11 @@ export async function verifyAndCreateUser(email: string, code: string) {
       throw new Error('Gagal membuat akun: ' + userError.message);
     }
 
-    // Update verification as used (gunakan supabaseServer)
-    await supabaseServer
-      .from('email_verifications')
-      .update({ is_used: true })
-      .eq('id', verification.id);
+    // Update verification as used
+    await supabaseServer.from('email_verifications').update({ is_used: true }).eq('id', verification.id);
 
-    // Hapus temporary data (gunakan supabaseServer)
-    await supabaseServer
-      .from('temporary_registrations')
-      .delete()
-      .eq('email', email);
+    // Hapus temporary data
+    await supabaseServer.from('temporary_registrations').delete().eq('email', email);
 
     return { user: newUser };
   } catch (error: any) {
@@ -177,14 +139,10 @@ export async function verifyAndCreateUser(email: string, code: string) {
   }
 }
 
-// STEP 3: Login (gunakan supabase biasa)
+// STEP 3: Login
 export async function loginUser(email: string, password: string, rememberMe: boolean = false) {
   try {
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .single();
+    const { data: user, error } = await supabase.from('users').select('*').eq('email', email).single();
 
     if (error || !user) {
       throw new Error('Email atau password salah');
@@ -196,19 +154,12 @@ export async function loginUser(email: string, password: string, rememberMe: boo
     }
 
     // Create session token
-    const token = jwt.sign(
-      { userId: user.user_id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: rememberMe ? '30d' : '1d' }
-    );
+    const token = jwt.sign({ userId: user.user_id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: rememberMe ? '30d' : '1d' });
 
-    // Delete old sessions (gunakan supabase biasa)
-    await supabase
-      .from('user_sessions')
-      .delete()
-      .eq('user_id', user.user_id);
+    // Delete old sessions
+    await supabase.from('user_sessions').delete().eq('user_id', user.user_id);
 
-    // Store new session (gunakan supabase biasa)
+    // Store new session
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + (rememberMe ? 30 : 1));
 
@@ -234,16 +185,12 @@ export async function loginUser(email: string, password: string, rememberMe: boo
   }
 }
 
-// Get User from Token (gunakan supabase biasa)
+// Get User from Token
 export async function getUserFromToken(token: string) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
 
-    const { data: user } = await supabase
-      .from('users')
-      .select('user_id, email, nama, role, avatar_url')
-      .eq('user_id', decoded.userId)
-      .single();
+    const { data: user } = await supabase.from('users').select('user_id, email, nama, role, avatar_url').eq('user_id', decoded.userId).single();
 
     return user;
   } catch {
@@ -251,7 +198,7 @@ export async function getUserFromToken(token: string) {
   }
 }
 
-// Logout (gunakan supabase biasa)
+// Logout
 export async function logoutUser(token: string) {
   await supabase.from('user_sessions').delete().eq('token', token);
 }

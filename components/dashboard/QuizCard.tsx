@@ -37,7 +37,7 @@ export function QuizCard({
         </div>
 
         {/* Title */}
-        <Link href={`/quiz/${id}`}>
+        <Link href={`/quiz/${id}/detail`}>
           <h3 className="text-base font-semibold text-gray-800 mb-4 line-clamp-2 hover:text-primary transition-colors">
             {title}
           </h3>

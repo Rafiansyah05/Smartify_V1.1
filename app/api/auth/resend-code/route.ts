@@ -11,11 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Cek di temporary_registrations karena user belum ada di tabel users
-    const { data: tempUser, error: tempError } = await supabase
-      .from('temporary_registrations')
-      .select('nama')
-      .eq('email', email)
-      .single();
+    const { data: tempUser, error: tempError } = await supabase.from('temporary_registrations').select('nama').eq('email', email).single();
 
     if (tempError || !tempUser) {
       return NextResponse.json({ error: 'Data registrasi tidak ditemukan. Silakan registrasi ulang.' }, { status: 404 });
@@ -24,7 +20,7 @@ export async function POST(request: NextRequest) {
     const newCode = Math.floor(100000 + Math.random() * 900000).toString();
     const newExpiry = new Date();
     newExpiry.setMinutes(newExpiry.getMinutes() + 15);
-    
+
     // Update kode di email_verifications
     const { error: updateError } = await supabase
       .from('email_verifications')
@@ -34,14 +30,14 @@ export async function POST(request: NextRequest) {
         is_used: false,
       })
       .eq('email', email);
-      
+
     if (updateError) {
-      // Jika ternyata tidak ada row (harusnya ada karena temporary_registrations ada), kita bisa coba insert, 
+      // Jika ternyata tidak ada row (harusnya ada karena temporary_registrations ada), kita bisa coba insert,
       // namun asumsikan update berhasil jika data valid
       console.error('Update verification code error:', updateError);
       return NextResponse.json({ error: 'Gagal mengupdate kode verifikasi' }, { status: 500 });
     }
-    
+
     // Update juga expired_at di temporary_registrations
     await supabase
       .from('temporary_registrations')

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Download, Trash2, Edit2, Bell, ArrowRight } from 'lucide-react';
+import { Download, Trash2, Edit2, ArrowRight } from 'lucide-react';
+import { Navbar } from '@/components/dashboard/Navbar';
 
 export default function PreviewQuizPage() {
   const params = useParams();
@@ -13,30 +14,17 @@ export default function PreviewQuizPage() {
   const [questions, setQuestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [authorName, setAuthorName] = useState('');
-  const [user, setUser] = useState<{ nama?: string; email?: string } | null>(null);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   useEffect(() => {
     fetchQuizData();
-    fetchUser();
   }, [id]);
-
-  const fetchUser = async () => {
-    try {
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-      }
-    } catch (err) {}
-  };
 
   const fetchQuizData = async () => {
     try {
       const res = await fetch(`/api/quiz/${id}`);
       if (res.ok) {
         const data = await res.json();
-        console.log('Quiz data:', data); // Debug: lihat di console
+        console.log('Quiz data:', data);
         setQuiz(data.kuis);
         setQuestions(data.soal || []);
         setAuthorName(data.pembuat);
@@ -45,22 +33,6 @@ export default function PreviewQuizPage() {
       console.error(err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const getInitials = (name?: string) => {
-    if (!name) return 'UN';
-    const parts = name.split(' ');
-    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    return name.substring(0, 2).toUpperCase();
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      router.push('/auth/login');
-    } catch (err) {
-      console.error('Logout error:', err);
     }
   };
 
@@ -125,10 +97,6 @@ export default function PreviewQuizPage() {
     }
   };
 
-  const handleBack = () => {
-    router.back();
-  };
-
   const formatText = (text?: string) => {
     if (!text) return null;
     const lines = text.split(/<br\s*\/?>|\n/g);
@@ -166,118 +134,83 @@ export default function PreviewQuizPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={handleBack} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-semibold text-lg">Back to Home</span>
-          </button>
+    <div className="min-h-screen bg-gray-50">
+      <Navbar fullWidth showBackButton backButtonText="Back to Dashboard" />
 
-          <div className="flex items-center gap-3">
-            <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
-              <Bell className="w-5 h-5 text-gray-500" />
-            </button>
-
-            <div className="relative">
-              <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center justify-center w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 hover:border-cyan-400 transition-colors">
-                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-medium text-sm">{getInitials(user?.nama)}</div>
-              </button>
-
-              {showProfileMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
-                  <div className="px-4 py-2 border-b border-gray-100">
-                    <p className="text-sm font-medium text-gray-800 truncate">{user?.nama || 'User'}</p>
-                    <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
-                  </div>
-                  <button onClick={handleLogout} className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-gray-50 transition-colors">
-                    Logout
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <div className="max-w-5xl mx-auto px-6 mt-8">
-        {/* Title Section */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">GENERATE QUIZ {'>'} PREVIEW</p>
-              <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
-            </div>
-            <button onClick={handleDownload} className="flex items-center gap-2 px-5 py-2.5 bg-cyan-400 hover:bg-cyan-500 text-white rounded-full font-medium transition-colors">
-              <Download className="w-4 h-4" />
-              Download Soal
-            </button>
-          </div>
-        </div>
-
-        {/* Questions */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-10">
-          {questions.map((q, index) => (
-            <div key={q.soal_id} className="pb-8 border-b border-gray-100 last:border-b-0 last:pb-0">
-              <h3 className="font-bold text-gray-800 mb-4 text-lg">Soal {index + 1}.</h3>
-              <div className="text-gray-700 mb-6 leading-relaxed">{formatText(q.teks_soal)}</div>
-
-              {/* Pilihan Ganda Options */}
-              {q.tipe_soal === 'pilihan_ganda' && q.pilihan && (
-                <div className="space-y-4 mb-8">
-                  {q.pilihan.map((p: any, pIndex: number) => {
-                    const label = String.fromCharCode(65 + pIndex);
-                    return (
-                      <div key={p.pilihan_id} className="flex items-center gap-4">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cyan-400 text-white text-sm font-bold flex-shrink-0">{label}</div>
-                        <span className="text-gray-700 font-medium">{p.teks_pilihan}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Jawaban Benar untuk Pilihan Ganda */}
-              {q.tipe_soal === 'pilihan_ganda' && q.pilihan && (
-                <div className="mb-6">
-                  <p className="text-sm text-gray-500 mb-2">Jawaban Benar</p>
-                  <div className="bg-emerald-100 px-5 py-3.5 rounded-xl flex items-center gap-4">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-sm font-bold flex-shrink-0">{String.fromCharCode(65 + q.pilihan.findIndex((p: any) => p.is_benar))}</div>
-                    <span className="font-semibold text-gray-800">{q.pilihan.find((p: any) => p.is_benar)?.teks_pilihan}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* PENJELASAN DARI GEMINI - TAMPIL UNTUK SEMUA TIPE SOAL */}
-              {q.kunci_jawaban?.jawaban_text && (
-                <div className="mb-6">
-                  <p className="text-sm text-gray-500 mb-2">Penjelasan Jawaban</p>
-                  <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
-                    <div className="text-emerald-800 text-sm leading-relaxed">{formatText(q.kunci_jawaban.jawaban_text)}</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4">
-                <button onClick={() => handleDelete(q.soal_id)} className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-500 hover:bg-red-100 rounded-full font-medium transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                  Hapus Soal
-                </button>
-                <button className="flex items-center gap-2 px-5 py-2.5 bg-cyan-50 text-cyan-500 hover:bg-cyan-100 rounded-full font-medium transition-colors">
-                  <Edit2 className="w-4 h-4" />
-                  Edit Soal
-                </button>
+      <main className="pt-24 pb-16">
+        <div className="max-w-5xl mx-auto px-6">
+          {/* Title Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">GENERATE QUIZ {'>'} PREVIEW</p>
+                <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
+                {authorName && <p className="text-sm text-gray-500 mt-1">Dibuat oleh: {authorName}</p>}
               </div>
+              <button onClick={handleDownload} className="flex items-center gap-2 px-5 py-2.5 bg-cyan-400 hover:bg-cyan-500 text-white rounded-full font-medium transition-colors shadow-sm">
+                <Download className="w-4 h-4" />
+                Download Soal
+              </button>
             </div>
-          ))}
+          </div>
+
+          {/* Questions */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-10">
+            {questions.map((q, index) => (
+              <div key={q.soal_id} className="pb-8 border-b border-gray-100 last:border-b-0 last:pb-0">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <h3 className="font-bold text-gray-800 text-lg">Soal {index + 1}.</h3>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full whitespace-nowrap">{q.tipe_soal === 'pilihan_ganda' ? 'Pilihan Ganda' : 'Uraian'}</span>
+                </div>
+                <div className="text-gray-700 mb-6 leading-relaxed">{formatText(q.teks_soal)}</div>
+
+                {/* Pilihan Ganda Options */}
+                {q.tipe_soal === 'pilihan_ganda' && q.pilihan && (
+                  <div className="space-y-3 mb-8">
+                    {q.pilihan.map((p: any, pIndex: number) => {
+                      const label = String.fromCharCode(65 + pIndex);
+                      return (
+                        <div key={p.pilihan_id} className="flex items-center gap-4 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cyan-400 text-white text-sm font-bold flex-shrink-0">{label}</div>
+                          <span className="text-gray-700">{p.teks_pilihan}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Jawaban Benar untuk Pilihan Ganda */}
+                {q.tipe_soal === 'pilihan_ganda' && q.pilihan && (
+                  <div className="mb-6">
+                    <p className="text-sm text-gray-500 mb-2">Jawaban Benar</p>
+                    <div className="bg-emerald-50 px-5 py-3.5 rounded-xl flex items-center gap-4 border border-emerald-200">
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-sm font-bold flex-shrink-0">{String.fromCharCode(65 + q.pilihan.findIndex((p: any) => p.is_benar))}</div>
+                      <span className="font-semibold text-gray-800">{q.pilihan.find((p: any) => p.is_benar)?.teks_pilihan}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Penjelasan dari Gemini */}
+                {q.kunci_jawaban?.jawaban_text && (
+                  <div className="mb-6">
+                    <p className="text-sm text-gray-500 mb-2">Penjelasan Jawaban</p>
+                    <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
+                      <div className="text-emerald-800 text-sm leading-relaxed">{formatText(q.kunci_jawaban.jawaban_text)}</div>
+                    </div>
+                  </div>
+                )}
+
+
+              </div>
+            ))}
+
+            {questions.length === 0 && <div className="text-center py-12 text-gray-500">Belum ada soal untuk kuis ini.</div>}
+          </div>
         </div>
-      </div>
+      </main>
 
       {/* Fixed Bottom Action */}
-      <div className="fixed bottom-6 right-6 z-30">
+      <div className="fixed bottom-6 right-6 z-40">
         <button
           onClick={handleSaveAndContinue}
           className="flex items-center gap-2 px-6 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full shadow-lg shadow-cyan-400/30 transition-all hover:shadow-xl hover:shadow-cyan-400/40"

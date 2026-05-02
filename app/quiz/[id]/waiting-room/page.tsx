@@ -1,17 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { ArrowLeft, Bell, MoreVertical, RefreshCw } from 'lucide-react';
+import { MoreVertical, RefreshCw, Users, Clock, FileText, Award } from 'lucide-react';
+import { Navbar } from '@/components/dashboard/Navbar';
+import { supabase } from '@/lib/supabase/client';
 
 const QR_SERVICE = 'https://api.qrserver.com/v1/create-qr-code/';
-
-interface Participant {
-  peserta_id: string;
-  nama_siswa: string;
-  status: 'connecting' | 'success' | string;
-}
 
 export default function WaitingRoomPage() {
   const params = useParams();
@@ -22,9 +18,8 @@ export default function WaitingRoomPage() {
 
   const [quiz, setQuiz] = useState<any>(null);
   const [qrCode, setQrCode] = useState<any>(null);
-  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [participants, setParticipants] = useState<any[]>([]);
   const [joinedParticipant, setJoinedParticipant] = useState<any>(null);
-  const [storedParticipant, setStoredParticipant] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [joinName, setJoinName] = useState('');
@@ -34,58 +29,204 @@ export default function WaitingRoomPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [startError, setStartError] = useState('');
   const [roomError, setRoomError] = useState('');
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [isCheckingStorage, setIsCheckingStorage] = useState(true);
+
+  const hasRedirectedRef = useRef(false);
+  const channelRef = useRef<any>(null);
 
   const isTeacher = useMemo(() => user?.role === 'guru' || user?.role === 'admin', [user]);
-  const studentView = !isTeacher;
   const qrUrl = useMemo(() => {
     if (!qrCode?.qr_image_url) return null;
     return `${window.location.origin}${qrCode.qr_image_url}`;
   }, [qrCode]);
 
-  const storageKey = useMemo(() => {
-    if (!id || !qrToken) return null;
-    return `waiting-room-${id}-${qrToken}`;
-  }, [id, qrToken]);
+  // === STORAGE KEYS ===
+  const getParticipantStorageKey = useCallback(() => `quiz-participant-${id}`, [id]);
+  const getWaitingRoomStorageKey = useCallback(() => `waiting-room-${id}-${qrToken}`, [id, qrToken]);
 
-  const fetchRoom = async (showLoading = true) => {
-    try {
-      if (showLoading) {
-        setLoading(true);
-      } else {
-        setRefreshing(true);
+  // === SAVE PARTICIPANT (STABLE) ===
+  const saveParticipantToStorage = useCallback(
+    (participantData: any) => {
+      if (typeof window === 'undefined') return false;
+      try {
+        localStorage.setItem(getParticipantStorageKey(), JSON.stringify(participantData));
+        if (qrToken) localStorage.setItem(getWaitingRoomStorageKey(), JSON.stringify(participantData));
+        sessionStorage.setItem(`quiz-session-${id}`, JSON.stringify(participantData));
+        return true;
+      } catch (err) {
+        console.error('Failed to save participant:', err);
+        return false;
       }
-      const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
-      if (qrToken) url.searchParams.set('token', qrToken);
-      const res = await fetch(url.toString(), { credentials: 'include' });
-      const data = await res.json();
-      if (!res.ok) {
-        setRoomError(data.error || 'Gagal memuat ruang tunggu');
-        return;
-      }
+    },
+    [id, getParticipantStorageKey, getWaitingRoomStorageKey, qrToken],
+  );
 
-      setQuiz(data.quiz);
-      setQrCode(data.qrCode);
-      setParticipants(data.participants || []);
-      setJoinedParticipant(data.joinedParticipant || storedParticipant || null);
-      setUser(data.user || null);
-    } catch (err) {
-      setRoomError('Terjadi kesalahan saat memuat data');
-      console.error(err);
-    } finally {
-      if (showLoading) {
-        setLoading(false);
-      } else {
-        setRefreshing(false);
+  // === LOAD PARTICIPANT (STABLE) ===
+  const loadParticipantFromStorage = useCallback(() => {
+    if (typeof window === 'undefined') return null;
+    const sources = [
+      { key: getParticipantStorageKey(), type: 'localStorage' },
+      { key: getWaitingRoomStorageKey(), type: 'localStorage' },
+      { key: `quiz-session-${id}`, type: 'sessionStorage' },
+    ];
+    for (const source of sources) {
+      try {
+        const stored = source.type === 'localStorage' ? localStorage.getItem(source.key) : sessionStorage.getItem(source.key);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.peserta_id) return parsed;
+        }
+      } catch (e) {
+        console.error(e);
       }
     }
-  };
+    return null;
+  }, [id, getParticipantStorageKey, getWaitingRoomStorageKey]);
+
+  // === REDIRECT TO TAKE QUIZ (STABLE) ===
+  const redirectToTakeQuiz = useCallback(() => {
+    if (hasRedirectedRef.current) return;
+    hasRedirectedRef.current = true;
+
+    let participantToUse = joinedParticipant;
+    if (!participantToUse?.peserta_id) {
+      participantToUse = loadParticipantFromStorage();
+    }
+
+    if (participantToUse?.peserta_id) {
+      saveParticipantToStorage({ ...participantToUse, quizStartTime: new Date().toISOString() });
+      const tokenToUse = qrToken || participantToUse.qrToken || '';
+      router.push(`/quiz/${id}/take?token=${tokenToUse}`);
+    } else {
+      hasRedirectedRef.current = false;
+    }
+  }, [joinedParticipant, loadParticipantFromStorage, saveParticipantToStorage, router, id, qrToken]);
+
+  // === AUTO REDIRECT EFFECT IF ALREADY ONGOING ===
+  useEffect(() => {
+    if (quiz?.status === 'ongoing' && !isTeacher && !hasRedirectedRef.current) {
+      console.log('🚀 Quiz is already ongoing, redirecting student immediately...');
+      redirectToTakeQuiz();
+    }
+  }, [quiz?.status, isTeacher, redirectToTakeQuiz]);
+
+  // === FETCH ROOM DATA ===
+  const fetchRoom = useCallback(
+    async (showLoading = true) => {
+      try {
+        if (showLoading) setLoading(true);
+        else setRefreshing(true);
+
+        const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
+        if (qrToken) url.searchParams.set('token', qrToken);
+        const res = await fetch(url.toString(), { credentials: 'include' });
+        const data = await res.json();
+
+        if (!res.ok) {
+          setRoomError(data.error || 'Gagal memuat ruang tunggu');
+          return;
+        }
+
+        setQuiz(data.quiz);
+        setQrCode(data.qrCode);
+        setParticipants(data.participants || []);
+        setUser(data.user || null);
+      } catch (err) {
+        setRoomError('Terjadi kesalahan saat memuat data');
+        console.error(err);
+      } finally {
+        if (showLoading) setLoading(false);
+        else setRefreshing(false);
+      }
+    },
+    [id, qrToken],
+  );
+
+  // === LOAD STORAGE ON MOUNT ===
+  useEffect(() => {
+    const saved = loadParticipantFromStorage();
+    if (saved?.peserta_id) setJoinedParticipant(saved);
+    setIsCheckingStorage(false);
+  }, [loadParticipantFromStorage]);
+
+  // === FETCH ROOM AFTER STORAGE CHECK ===
+  useEffect(() => {
+    if (!isCheckingStorage) fetchRoom();
+  }, [isCheckingStorage, fetchRoom]);
+
+  // === SUPABASE REALTIME & POLLING ===
+  useEffect(() => {
+    if (!id || loading || isCheckingStorage) return;
+    const quizIdInt = parseInt(id as string);
+    if (isNaN(quizIdInt)) return;
+
+    console.log('🔌 Setting up waiting room realtime for quiz:', quizIdInt);
+
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    const channel = supabase.channel(`waiting-room-${quizIdInt}`);
+
+    // Listen for quiz status changes
+    channel.on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'kuis',
+      },
+      (payload) => {
+        if (payload.new?.kuis_id !== quizIdInt) return;
+        if (payload.new?.status === 'ongoing' && !isTeacher && !hasRedirectedRef.current) {
+          console.log('🚀 Realtime: Quiz started! Redirecting...');
+          redirectToTakeQuiz();
+        }
+        fetchRoom(false);
+      },
+    );
+
+    // Listen for new participants
+    channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'peserta_kuis', filter: `kuis_id=eq.${quizIdInt}` }, () => fetchRoom(false));
+
+    channel.subscribe((status) => {
+      console.log(`📡 Waiting room realtime status:`, status);
+      setIsRealtimeConnected(status === 'SUBSCRIBED');
+    });
+
+    channelRef.current = channel;
+
+    // POLLING FALLBACK
+    const interval = setInterval(async () => {
+      try {
+        const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
+        if (qrToken) url.searchParams.set('token', qrToken);
+        const res = await fetch(url.toString());
+        const data = await res.json();
+        
+        if (data.quiz?.status === 'ongoing' && !isTeacher && !hasRedirectedRef.current) {
+          console.log('🚀 Polling fallback: quiz started, redirecting...');
+          redirectToTakeQuiz();
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 3000); // cek setiap 3 detik
+
+    return () => {
+      clearInterval(interval);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [id, loading, isCheckingStorage, isTeacher, redirectToTakeQuiz, fetchRoom, qrToken]);
 
   const handleStartQuiz = async () => {
     if (!id) return;
     setStartError('');
     setStarting(true);
-
     try {
       const res = await fetch(`/api/quiz/${id}/start`, { method: 'POST' });
       const data = await res.json();
@@ -93,7 +234,6 @@ export default function WaitingRoomPage() {
         setStartError(data.error || 'Gagal memulai kuis');
         return;
       }
-      // Redirect teacher to progress page
       router.push(`/quiz/${id}/progress`);
     } catch (err) {
       console.error(err);
@@ -102,62 +242,6 @@ export default function WaitingRoomPage() {
       setStarting(false);
     }
   };
-
-  // Check quiz status untuk redirect siswa (HANYA ini yang auto cek, tanpa polling participant)
-  const checkQuizStatus = async () => {
-    if (!isTeacher && qrToken && joinedParticipant && quiz?.status !== 'ongoing') {
-      try {
-        const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
-        if (qrToken) url.searchParams.set('token', qrToken);
-        const res = await fetch(url.toString(), { credentials: 'include' });
-        const data = await res.json();
-
-        if (data.quiz?.status === 'ongoing') {
-          const participantData = {
-            ...joinedParticipant,
-            quizStartTime: new Date().toISOString(),
-          };
-          if (storageKey && typeof window !== 'undefined') {
-            window.localStorage.setItem(storageKey, JSON.stringify(participantData));
-          }
-          router.push(`/quiz/${id}/take?token=${qrToken}`);
-        }
-      } catch (err) {
-        console.error('Error checking quiz status:', err);
-      }
-    }
-  };
-
-  // Polling ONLY untuk cek status quiz (bukan untuk update participant list)
-  useEffect(() => {
-    if (loading || isTeacher || !qrToken || !joinedParticipant) return;
-    if (quiz?.status === 'ongoing') return; // Already redirecting
-
-    // Cek status quiz setiap 3 detik
-    const pollInterval = setInterval(() => {
-      checkQuizStatus();
-    }, 3000);
-
-    return () => clearInterval(pollInterval);
-  }, [loading, isTeacher, qrToken, joinedParticipant, quiz?.status]);
-
-  useEffect(() => {
-    if (!storageKey) return;
-    if (typeof window === 'undefined') return;
-
-    const stored = window.localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        setStoredParticipant(JSON.parse(stored));
-      } catch (error) {
-        console.error('Failed to parse stored participant', error);
-      }
-    }
-  }, [storageKey]);
-
-  useEffect(() => {
-    fetchRoom();
-  }, [id, qrToken]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,10 +253,8 @@ export default function WaitingRoomPage() {
       setJoinError('Token QR tidak ditemukan');
       return;
     }
-
     setJoinError('');
     setSubmitting(true);
-
     try {
       const res = await fetch(`/api/quiz/${id}/waiting-room/join`, {
         method: 'POST',
@@ -184,13 +266,18 @@ export default function WaitingRoomPage() {
         setJoinError(data.error || 'Gagal bergabung ke ruangan');
         return;
       }
-      setJoinedParticipant(data.participant);
-      setStoredParticipant(data.participant);
-      setParticipants((current) => [...current.filter((item) => item.peserta_id !== data.participant.peserta_id), data.participant]);
-
-      if (storageKey && typeof window !== 'undefined') {
-        window.localStorage.setItem(storageKey, JSON.stringify(data.participant));
-      }
+      const participantToStore = {
+        peserta_id: data.participant.peserta_id,
+        nama_siswa: data.participant.nama_siswa,
+        status: data.participant.status,
+        waktu_masuk: data.participant.waktu_masuk,
+        savedAt: new Date().toISOString(),
+        qrToken,
+      };
+      setJoinedParticipant(participantToStore);
+      saveParticipantToStorage(participantToStore);
+      setParticipants((prev) => [...prev, data.participant]);
+      await fetchRoom(false);
     } catch (err) {
       console.error(err);
       setJoinError('Terjadi kesalahan ketika bergabung');
@@ -202,22 +289,6 @@ export default function WaitingRoomPage() {
   const openQrFull = () => {
     if (!qrUrl) return;
     window.open(qrUrl, '_blank');
-  };
-
-  const getInitials = (name?: string) => {
-    if (!name) return 'UN';
-    const parts = name.split(' ');
-    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    return name.substring(0, 2).toUpperCase();
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      router.push('/auth/login');
-    } catch (err) {
-      console.error('Logout error:', err);
-    }
   };
 
   const getDifficultyColor = (difficulty: string) => {
@@ -237,293 +308,253 @@ export default function WaitingRoomPage() {
   };
 
   const renderJoinCard = () => (
-    <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-      <div className="flex flex-col items-center gap-4 mb-6">
-        <Image src="/images/logo2.png" alt="Smartify" width={80} height={80} priority />
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-800">Masuk Ruangan</h1>
-          <p className="text-sm text-gray-500 mt-2">Masukkan nama lengkap untuk bergabung ke kuis.</p>
-        </div>
-      </div>
-
-      {quiz && (
-        <div className="mb-6 rounded-2xl bg-gray-50 p-5 border border-gray-100">
-          <p className="text-xs uppercase tracking-widest text-gray-400 mb-2">{quiz.judul}</p>
-          <div className="grid grid-cols-3 gap-3 text-sm text-gray-600">
-            <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
-              <p className="font-semibold text-gray-900">{quiz.total_soal}</p>
-              <span className="text-xs">Soal</span>
-            </div>
-            <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
-              <p className="font-semibold text-gray-900">{quiz.durasi_menit}m</p>
-              <span className="text-xs">Durasi</span>
-            </div>
-            <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
-              <p className={`font-semibold capitalize ${getDifficultyColor(quiz.tingkat_kesulitan)}`}>{quiz.tingkat_kesulitan}</p>
-              <span className="text-xs">Level</span>
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
+        <div className="flex flex-col items-center gap-4 mb-6">
+          <Image src="/images/logo2.png" alt="Smartify" width={80} height={80} priority />
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-800">Masuk Ruangan</h1>
+            <p className="text-sm text-gray-500 mt-2">Masukkan nama lengkap untuk bergabung ke kuis.</p>
           </div>
         </div>
-      )}
-
-      <form onSubmit={handleJoin} className="space-y-4">
-        <div className="space-y-2">
-          <label htmlFor="joinName" className="block text-sm font-medium text-gray-700">
-            Nama Lengkap
-          </label>
-          <input
-            id="joinName"
-            value={joinName}
-            onChange={(e) => setJoinName(e.target.value)}
-            placeholder="Contoh: Royma Teddy"
-            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-          />
-        </div>
-
-        {joinError && <p className="text-sm text-red-600">{joinError}</p>}
-
-        <button type="submit" disabled={submitting} className="w-full rounded-full bg-cyan-400 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-cyan-500 disabled:opacity-50">
-          {submitting ? 'Memproses...' : 'Masuk'}
-        </button>
-      </form>
+        {quiz && (
+          <div className="mb-6 rounded-2xl bg-gray-50 p-5 border border-gray-100">
+            <p className="text-xs uppercase tracking-widest text-gray-400 mb-2">{quiz.judul}</p>
+            <div className="grid grid-cols-3 gap-3 text-sm text-gray-600">
+              <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
+                <p className="font-semibold text-gray-900">{quiz.total_soal}</p>
+                <span className="text-xs">Soal</span>
+              </div>
+              <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
+                <p className="font-semibold text-gray-900">{quiz.durasi_menit}m</p>
+                <span className="text-xs">Durasi</span>
+              </div>
+              <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
+                <p className={`font-semibold capitalize ${getDifficultyColor(quiz.tingkat_kesulitan)}`}>{quiz.tingkat_kesulitan}</p>
+                <span className="text-xs">Level</span>
+              </div>
+            </div>
+          </div>
+        )}
+        <form onSubmit={handleJoin} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="joinName" className="block text-sm font-medium text-gray-700">
+              Nama Lengkap
+            </label>
+            <input
+              id="joinName"
+              value={joinName}
+              onChange={(e) => setJoinName(e.target.value)}
+              placeholder="Contoh: Royma Teddy"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
+            />
+          </div>
+          {joinError && <p className="text-sm text-red-600">{joinError}</p>}
+          <button type="submit" disabled={submitting} className="w-full rounded-full bg-cyan-400 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-cyan-500 disabled:opacity-50">
+            {submitting ? 'Memproses...' : 'Masuk'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 
-  // Student Waiting View - after joined (NO AUTO REFRESH participant)
   const renderStudentWaitingView = () => (
-    <div className="min-h-screen bg-gray-50 pb-16">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => router.push('/dashboard')} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-semibold text-lg">Back to Home</span>
-          </button>
-          <div className="flex items-center gap-3">
-            {/* Tombol refresh tetap ada tapi hanya untuk manual refresh */}
-            <button onClick={() => fetchRoom(false)} disabled={refreshing || loading} className="p-2.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              <RefreshCw className="w-5 h-5 text-gray-500" />
-            </button>
-            <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
-              <Bell className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-4xl mx-auto px-6 mt-8">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          {/* Breadcrumb & Title */}
-          <div className="mb-8">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-              GENERATE QUIZ {'>'} PREVIEW {'>'} WAITING ROOM
-            </p>
-            <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
-          </div>
-
-          {/* Quiz Info */}
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            <div className="text-center">
-              <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">QUESTIONS</p>
-              <p className="text-2xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">TIME LIMIT</p>
-              <p className="text-2xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">DIFFICULTY</p>
-              <p className={`text-2xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
-            </div>
-          </div>
-
-          {/* Student List - statis, hanya berubah saat manual refresh */}
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">{participants.length} Siswa Bergabung</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {participants.map((participant) => (
-                <div key={participant.peserta_id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-gray-800 text-sm">{participant.nama_siswa}</p>
-                    <span className={`text-xs ${participant.status === 'success' ? 'text-emerald-500' : 'text-amber-500'}`}>{participant.status === 'success' ? 'Ready' : 'Connecting...'}</span>
-                  </div>
-                  <MoreVertical className="w-4 h-4 text-gray-400" />
+    <div className="min-h-screen bg-gray-50">
+      <Navbar fullWidth showBackButton backButtonText="Back to Dashboard" />
+      <main className="pt-20 pb-16">
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+            <div className="mb-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">GENERATE QUIZ {'>'} WAITING ROOM</p>
+                  <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Waiting Message */}
-          <div className="bg-cyan-50 rounded-xl p-6 text-center border border-cyan-100">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-            </div>
-            <p className="text-cyan-800 font-medium">Anda telah bergabung sebagai {joinedParticipant?.nama_siswa}</p>
-            <p className="text-cyan-600 text-sm mt-2">Silakan tunggu guru memulai kuis...</p>
-            <p className="text-cyan-500 text-xs mt-1">Halaman akan otomatis berpindah saat kuis dimulai</p>
-            <button onClick={() => fetchRoom(false)} disabled={refreshing} className="mt-4 inline-flex items-center gap-2 text-xs text-cyan-600 hover:text-cyan-700 transition-colors">
-              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh daftar peserta
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Teacher View
-  const renderTeacherView = () => (
-    <div className="min-h-screen bg-gray-50 pb-16">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => router.push('/dashboard')} className="flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-semibold text-lg">Back to Home</span>
-          </button>
-
-          <div className="flex items-center gap-3">
-            {/* Tombol refresh manual untuk guru */}
-            <button onClick={() => fetchRoom(false)} disabled={refreshing || loading} className="p-2.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              <RefreshCw className={`w-5 h-5 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
-            </button>
-            <button className="p-2.5 rounded-full hover:bg-gray-50 transition-colors">
-              <Bell className="w-5 h-5 text-gray-500" />
-            </button>
-
-            <div className="relative">
-              <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center justify-center w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 hover:border-cyan-400 transition-colors">
-                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-medium text-sm">{getInitials(user?.nama)}</div>
-              </button>
-
-              {showProfileMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
-                  <div className="px-4 py-2 border-b border-gray-100">
-                    <p className="text-sm font-medium text-gray-800 truncate">{user?.nama || 'User'}</p>
-                    <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
-                  </div>
-                  <button onClick={handleLogout} className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-gray-50 transition-colors">
-                    Logout
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-6xl mx-auto px-6 mt-8">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          {/* Breadcrumb & Header */}
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
-            <div>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-                GENERATE QUIZ {'>'} PREVIEW {'>'} WAITING ROOM
-              </p>
-              <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
-            </div>
-
-            <div className="flex items-center gap-6">
-              {/* Quiz Stats */}
-              <div className="flex items-center gap-6">
-                <div className="text-center">
-                  <p className="text-xs uppercase tracking-wider text-gray-400">QUESTIONS</p>
-                  <p className="text-xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs uppercase tracking-wider text-gray-400">TIME LIMIT</p>
-                  <p className="text-xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs uppercase tracking-wider text-gray-400">DIFFICULTY</p>
-                  <p className={`text-xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
-                </div>
-              </div>
-
-              {/* Start Button */}
-              <button
-                onClick={handleStartQuiz}
-                disabled={starting || quiz?.status === 'ongoing'}
-                className="px-6 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {quiz?.status === 'ongoing' ? 'Kuis Berlangsung' : starting ? 'Memulai...' : 'Mulai Kuis Sekarang!'}
-              </button>
-            </div>
-          </div>
-
-          {startError && <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{startError}</div>}
-
-          {/* Main Content */}
-          <div className="grid lg:grid-cols-[300px_1fr] gap-8">
-            {/* QR Code Section */}
-            <div className="bg-white rounded-2xl border border-gray-100 p-6">
-              <div className="text-center">
-                {qrUrl ? (
-                  <div className="relative mx-auto w-full max-w-[220px]">
-                    <img crossOrigin="anonymous" src={`${QR_SERVICE}?size=280x280&data=${encodeURIComponent(qrUrl)}`} alt="QR Code Smartify" className="mx-auto rounded-2xl border border-gray-200 bg-white" />
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <div className="rounded-full bg-white p-1.5 shadow-sm">
-                        <Image src="/images/logo2.png" alt="Smartify" width={40} height={40} />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-56 flex items-center justify-center text-sm text-gray-400 bg-gray-50 rounded-2xl">QR Code belum tersedia</div>
-                )}
-
-                <div className="mt-6 border-t border-gray-100 pt-6">
-                  <h3 className="font-semibold text-gray-800">Scan to Join</h3>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Open your camera
-                    <br />
-                    to join the lobby instantly.
-                  </p>
-
-                  <button onClick={openQrFull} className="mt-4 w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                    Buka QR
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Participants Section */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-800">{participants.length} Siswa Bergabung</h2>
-                <button onClick={() => fetchRoom(false)} disabled={refreshing} className="inline-flex items-center gap-2 text-xs text-cyan-600 hover:text-cyan-700 transition-colors">
-                  <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
-                  Refresh
+                <button onClick={() => fetchRoom(false)} disabled={refreshing} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
+                  <RefreshCw className={`w-5 h-5 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
+              {isRealtimeConnected && (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-500 mt-2">
+                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                  Live
+                </span>
+              )}
+            </div>
 
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <FileText className="w-5 h-5 text-gray-400 mx-auto mb-2" />
+                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">QUESTIONS</p>
+                <p className="text-2xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
+              </div>
+              <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <Clock className="w-5 h-5 text-gray-400 mx-auto mb-2" />
+                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">TIME LIMIT</p>
+                <p className="text-2xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
+              </div>
+              <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <Award className="w-5 h-5 text-gray-400 mx-auto mb-2" />
+                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">DIFFICULTY</p>
+                <p className={`text-2xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
+              </div>
+            </div>
+
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-cyan-500" />
+                  {participants.length} Siswa Bergabung
+                </h2>
+              </div>
               {participants.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {participants.map((participant) => (
-                    <div key={participant.peserta_id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-gray-800 text-sm">{participant.nama_siswa}</p>
-                        <span className={`text-xs ${participant.status === 'success' ? 'text-emerald-500' : 'text-amber-500'}`}>{participant.status === 'success' ? 'Ready' : 'Waiting...'}</span>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {participants.map((p) => (
+                    <div key={p.peserta_id} className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 text-sm truncate">{p.nama_siswa}</p>
+                        <span className="text-xs text-emerald-500">✓ Siap</span>
                       </div>
-                      <MoreVertical className="w-4 h-4 text-gray-400" />
+                      <MoreVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-12 text-center">
-                  <p className="text-gray-500">Belum ada siswa yang bergabung.</p>
-                  <p className="text-sm text-gray-400 mt-1">Bagikan QR code untuk mengundang siswa.</p>
+                <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-xl">
+                  <Users className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                  <p>Belum ada siswa yang bergabung</p>
+                  <p className="text-xs mt-1">Bagikan QR code untuk mengundang siswa</p>
                 </div>
               )}
             </div>
+
+            <div className="bg-cyan-50 rounded-xl p-6 text-center border border-cyan-100">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              </div>
+              <p className="text-cyan-800 font-medium">
+                Anda telah bergabung sebagai <strong>{joinedParticipant?.nama_siswa}</strong>
+              </p>
+              <p className="text-cyan-600 text-sm mt-2">Silakan tunggu guru memulai kuis...</p>
+              <p className="text-cyan-500 text-xs mt-1">Halaman akan otomatis berpindah saat kuis dimulai</p>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 
-  if (loading) {
+  const renderTeacherView = () => (
+    <div className="min-h-screen bg-gray-50">
+      <Navbar fullWidth showBackButton backButtonText="Back to Dashboard" />
+      <main className="pt-20 pb-16">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">GENERATE QUIZ {'>'} WAITING ROOM</p>
+                <h1 className="text-2xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
+                {isRealtimeConnected && (
+                  <span className="inline-flex items-center gap-1 text-xs text-emerald-500 mt-2">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    Live
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-6 flex-wrap">
+                <div className="flex items-center gap-4">
+                  <div className="text-center">
+                    <p className="text-xs uppercase tracking-wider text-gray-400">QUESTIONS</p>
+                    <p className="text-xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs uppercase tracking-wider text-gray-400">TIME LIMIT</p>
+                    <p className="text-xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs uppercase tracking-wider text-gray-400">DIFFICULTY</p>
+                    <p className={`text-xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
+                  </div>
+                </div>
+                <button onClick={handleStartQuiz} disabled={starting || quiz?.status === 'ongoing'} className="px-6 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 shadow-sm">
+                  {quiz?.status === 'ongoing' ? 'Kuis Berlangsung' : starting ? 'Memulai...' : 'Mulai Kuis Sekarang!'}
+                </button>
+              </div>
+            </div>
+            {startError && <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{startError}</div>}
+            <div className="grid lg:grid-cols-[320px_1fr] gap-8">
+              <div className="bg-gray-50 rounded-2xl border border-gray-100 p-6">
+                <div className="text-center">
+                  {qrUrl ? (
+                    <div className="relative mx-auto w-full max-w-[220px]">
+                      <img crossOrigin="anonymous" src={`${QR_SERVICE}?size=280x280&data=${encodeURIComponent(qrUrl)}`} alt="QR Code Smartify" className="mx-auto rounded-2xl border border-gray-200 bg-white shadow-sm" />
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <div className="rounded-full bg-white p-1.5 shadow-sm">
+                          <Image src="/images/logo2.png" alt="Smartify" width={40} height={40} />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-56 flex items-center justify-center text-sm text-gray-400 bg-gray-100 rounded-2xl">QR Code belum tersedia</div>
+                  )}
+                  <div className="mt-6 border-t border-gray-200 pt-6">
+                    <h3 className="font-semibold text-gray-800">Scan to Join</h3>
+                    <p className="text-sm text-gray-500 mt-1">Buka kamera ponsel untuk bergabung</p>
+                    <button onClick={openQrFull} className="mt-4 w-full px-4 py-2.5 bg-cyan-400 hover:bg-cyan-500 text-white rounded-xl text-sm font-medium transition-colors shadow-sm">
+                      Tampilkan QR Code
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-cyan-500" />
+                    {participants.length} Siswa Bergabung
+                  </h2>
+                  <button onClick={() => fetchRoom(false)} disabled={refreshing} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
+                    <RefreshCw className={`w-5 h-5 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+                {participants.length > 0 ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {participants.map((p) => (
+                      <div key={p.peserta_id} className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-800 text-sm truncate">{p.nama_siswa}</p>
+                          <span className="text-xs text-emerald-500">✓ Siap</span>
+                        </div>
+                        <MoreVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-12 text-center">
+                    <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500">Belum ada siswa yang bergabung</p>
+                    <p className="text-sm text-gray-400 mt-1">Bagikan QR code untuk mengundang siswa</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+
+  if (isCheckingStorage) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
+        <p className="ml-3 text-gray-500">Memeriksa sesi...</p>
+      </div>
+    );
+  }
+
+  if (loading && !isCheckingStorage) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
@@ -545,16 +576,10 @@ export default function WaitingRoomPage() {
     );
   }
 
-  // Student without joining yet
-  if (!isTeacher && !joinedParticipant && qrToken) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">{renderJoinCard()}</div>;
+  if (!isCheckingStorage) {
+    if (!isTeacher && !joinedParticipant && qrToken) return renderJoinCard();
+    if (!isTeacher && joinedParticipant) return renderStudentWaitingView();
   }
 
-  // Student already joined
-  if (!isTeacher && joinedParticipant) {
-    return renderStudentWaitingView();
-  }
-
-  // Teacher view
   return renderTeacherView();
 }

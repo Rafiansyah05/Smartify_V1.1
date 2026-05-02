@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,7 +26,7 @@ Tugas Anda:
 1. Identifikasi TOPIK/MATERI utama yang belum dikuasai siswa dari soal-soal tersebut (maksimal 3 topik)
 2. Berikan rekomendasi belajar yang spesifik untuk setiap topik
 
-Format response HARUS berupa JSON array dengan structure:
+Format response HARUS berupa JSON murni (raw JSON) dengan array of objects:
 [
   {
     "materi": "nama materi/topik",
@@ -31,32 +34,20 @@ Format response HARUS berupa JSON array dengan structure:
   }
 ]
 
-Gunakan bahasa Indonesia yang santai namun informatif. Jangan terlalu panjang.`;
+Gunakan bahasa Indonesia yang santai namun informatif. Jangan menggunakan block markdown seperti \`\`\`json.`;
 
-    // Panggil API Gemini
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
-      }),
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash',
+      generationConfig: { responseMimeType: "application/json" }
     });
-
-    const data = await response.json();
-    let recommendationsText = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-
-    // Clean up response (remove markdown code blocks)
-    recommendationsText = recommendationsText
-      .replace(/```json\n?/g, '')
-      .replace(/```\n?/g, '')
-      .trim();
-
-    const recommendations = JSON.parse(recommendationsText);
+    const result = await model.generateContent(prompt);
+    const textResult = result.response.text();
+    
+    const recommendations = JSON.parse(textResult);
 
     return NextResponse.json({ recommendations });
   } catch (error: any) {
-    console.error('AI Recommendation error:', error);
+    console.error('AI Recommendation Error:', error);
     return NextResponse.json({ recommendations: [], error: error.message }, { status: 500 });
   }
 }

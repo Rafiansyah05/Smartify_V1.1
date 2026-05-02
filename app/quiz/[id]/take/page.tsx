@@ -42,6 +42,15 @@ export default function TakeQuizPage() {
   const totalQuestions = shuffledQuestions.length;
   const answeredCount = Object.keys(answers).length;
 
+  // Helper untuk mendapatkan storage key yang konsisten
+  const getParticipantStorageKey = useCallback(() => {
+    return `quiz-participant-${id}`;
+  }, [id]);
+
+  const getWaitingRoomStorageKey = useCallback(() => {
+    return `waiting-room-${id}-${qrToken}`;
+  }, [id, qrToken]);
+
   // Shuffle array utility
   const shuffleArray = <T,>(array: T[]): T[] => {
     const shuffled = [...array];
@@ -52,19 +61,50 @@ export default function TakeQuizPage() {
     return shuffled;
   };
 
+  const loadParticipantFromStorage = useCallback(() => {
+    // Coba dari berbagai sumber storage
+    const sources = [
+      { key: getParticipantStorageKey(), type: 'localStorage' },
+      { key: getWaitingRoomStorageKey(), type: 'localStorage' },
+      { key: `quiz-session-${id}`, type: 'sessionStorage' },
+    ];
+
+    for (const source of sources) {
+      try {
+        const stored = source.type === 'localStorage' ? localStorage.getItem(source.key) : sessionStorage.getItem(source.key);
+
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.peserta_id) {
+            console.log(`✅ Loaded participant from ${source.type}[${source.key}]:`, parsed);
+            return parsed;
+          }
+        }
+      } catch (e) {
+        console.error(`Failed to parse from ${source.key}:`, e);
+      }
+    }
+    return null;
+  }, [id, getParticipantStorageKey, getWaitingRoomStorageKey]);
+
   const fetchQuiz = async () => {
     try {
       setLoading(true);
 
-      // Get participant info from localStorage
-      const storageKey = `waiting-room-${id}-${qrToken}`;
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const participantData = JSON.parse(stored);
+      // Get participant info from storage (multiple sources)
+      const participantData = loadParticipantFromStorage();
+
+      if (participantData) {
+        console.log('Loaded participant from storage:', participantData);
         setParticipant(participantData);
+      } else {
+        console.log('No participant found in storage');
+        setError('Data peserta tidak ditemukan. Silakan scan QR code kembali.');
+        setLoading(false);
+        return;
       }
 
-      const res = await fetch(`/api/quiz/${id}`, { credentials: 'include' });
+      const res = await fetch(`/api/quiz/${id}?token=${qrToken}`, { credentials: 'include' });
       const data = await res.json();
 
       if (!res.ok) {
@@ -83,7 +123,6 @@ export default function TakeQuizPage() {
 
       // Shuffle questions for each student (randomize order)
       const shuffled = shuffleArray<Question>(data.soal || []);
-      // Also shuffle choices for each multiple choice question
       const shuffledWithChoices = shuffled.map((q: Question) => ({
         ...q,
         pilihan: q.tipe_soal === 'pilihan_ganda' && q.pilihan ? shuffleArray(q.pilihan) : q.pilihan,
@@ -99,7 +138,8 @@ export default function TakeQuizPage() {
       const savedAnswers = localStorage.getItem(`quiz-answers-${id}-${qrToken}`);
       if (savedAnswers) {
         try {
-          setAnswers(JSON.parse(savedAnswers));
+          const parsed = JSON.parse(savedAnswers);
+          setAnswers(parsed);
         } catch (e) {
           console.error('Failed to restore answers', e);
         }
@@ -129,6 +169,19 @@ export default function TakeQuizPage() {
       setSaveStatus('saving');
       autoSaveTimeoutRef.current = setTimeout(() => {
         saveAnswersLocally();
+        
+        // Sync to server for real-time teacher progress
+        if (participant?.peserta_id) {
+          fetch(`/api/quiz/${id}/save-progress`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pesertaId: participant.peserta_id,
+              answers: answers
+            })
+          }).catch(console.error);
+        }
+        
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus(''), 2000);
       }, 1000);
@@ -139,16 +192,21 @@ export default function TakeQuizPage() {
         clearTimeout(autoSaveTimeoutRef.current);
       }
     };
-  }, [answers, saveAnswersLocally]);
+  }, [answers, saveAnswersLocally, participant?.peserta_id, id]);
 
   // Submit quiz to server
   const handleSubmit = useCallback(
     async (isAutoSubmit = false) => {
       if (hasSubmittedRef.current) return;
+
+      // Validasi pesertaId
       if (!participant?.peserta_id) {
-        setError('Data peserta tidak ditemukan');
+        console.error('No peserta_id found:', participant);
+        setError('Data peserta tidak ditemukan. Silakan refresh halaman.');
         return;
       }
+
+      console.log('Submitting with pesertaId:', participant.peserta_id);
 
       hasSubmittedRef.current = true;
       setSubmitting(true);
@@ -170,8 +228,16 @@ export default function TakeQuizPage() {
           throw new Error(data.error || 'Gagal mengirim jawaban');
         }
 
-        // Clear local storage
+        // Clear all storage related to this quiz
         localStorage.removeItem(`quiz-answers-${id}-${qrToken}`);
+        localStorage.removeItem(getParticipantStorageKey());
+        localStorage.removeItem(getWaitingRoomStorageKey());
+        sessionStorage.removeItem(`quiz-session-${id}`);
+
+        // Also clear old format
+        localStorage.removeItem(`waiting-room-${id}-${qrToken}`);
+
+        console.log('✅ All storage cleared after successful submission');
 
         // Store result for display
         localStorage.setItem(
@@ -179,6 +245,7 @@ export default function TakeQuizPage() {
           JSON.stringify({
             ...data.result,
             participantName: participant.nama_siswa,
+            pesertaId: participant.peserta_id,
           }),
         );
 
@@ -192,7 +259,7 @@ export default function TakeQuizPage() {
         setAutoSubmitting(false);
       }
     },
-    [participant, answers, id, qrToken, router],
+    [participant, answers, id, qrToken, router, getParticipantStorageKey, getWaitingRoomStorageKey],
   );
 
   // Timer countdown
@@ -202,7 +269,6 @@ export default function TakeQuizPage() {
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
-          // Auto submit when time is up
           if (!hasSubmittedRef.current) {
             handleSubmit(true);
           }
@@ -322,7 +388,6 @@ export default function TakeQuizPage() {
     );
   }
 
-  // Auto-submitting overlay
   if (autoSubmitting) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
@@ -340,7 +405,6 @@ export default function TakeQuizPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
-      {/* Header */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -350,14 +414,12 @@ export default function TakeQuizPage() {
             </div>
 
             <div className="flex items-center gap-4">
-              {/* Save Status */}
               {saveStatus && (
                 <span className={`text-xs ${saveStatus === 'saved' ? 'text-emerald-500' : saveStatus === 'saving' ? 'text-gray-400' : 'text-red-500'}`}>
                   {saveStatus === 'saved' ? 'Tersimpan' : saveStatus === 'saving' ? 'Menyimpan...' : 'Gagal menyimpan'}
                 </span>
               )}
 
-              {/* Timer */}
               <div className={`flex items-center gap-2 px-5 py-2.5 ${getTimeColor()} text-white rounded-full transition-colors`}>
                 <Clock className="w-5 h-5" />
                 <span className="font-bold">{formatTime(timeRemaining)}</span>
@@ -369,7 +431,6 @@ export default function TakeQuizPage() {
 
       <div className="max-w-7xl mx-auto px-6 mt-8">
         <div className="grid lg:grid-cols-[1fr_300px] gap-8">
-          {/* Main Content - Question Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             {currentQuestion ? (
               <>
@@ -381,7 +442,6 @@ export default function TakeQuizPage() {
                   <div className="text-gray-700 leading-relaxed">{formatText(currentQuestion.teks_soal)}</div>
                 </div>
 
-                {/* Answer Options */}
                 {currentQuestion.tipe_soal === 'pilihan_ganda' && currentQuestion.pilihan && (
                   <div className="space-y-4 mb-8">
                     {currentQuestion.pilihan.map((option, index) => {
@@ -402,7 +462,6 @@ export default function TakeQuizPage() {
                   </div>
                 )}
 
-                {/* Essay Answer */}
                 {currentQuestion.tipe_soal === 'uraian' && (
                   <div className="mb-8">
                     <textarea
@@ -416,8 +475,7 @@ export default function TakeQuizPage() {
                   </div>
                 )}
 
-                {/* Navigation Buttons */}
-                <div className="flex items-center justify-center gap-4">
+                <div className="flex items-center justify-end gap-4 mt-8">
                   <button
                     onClick={handlePrevious}
                     disabled={currentQuestionIndex === 0}
@@ -439,7 +497,6 @@ export default function TakeQuizPage() {
             )}
           </div>
 
-          {/* Sidebar - Question Navigator */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="mb-4">
               <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">NAMA LENGKAP:</p>
@@ -466,7 +523,6 @@ export default function TakeQuizPage() {
               </div>
             </div>
 
-            {/* Legend */}
             <div className="mb-6 p-4 bg-gray-50 rounded-xl">
               <p className="text-xs font-medium text-gray-500 mb-3">Keterangan:</p>
               <div className="space-y-2 text-xs">
@@ -496,7 +552,6 @@ export default function TakeQuizPage() {
         </div>
       </div>
 
-      {/* Confirm Submit Modal */}
       {showConfirmSubmit && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-8 max-w-md w-full">
