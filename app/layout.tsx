@@ -8,16 +8,15 @@ const poppins = Poppins({
   weight: ['300', '400', '500', '600', '700'],
 });
 
-
 export const metadata: Metadata = {
   title: 'Smartify',
   description: 'Platform Generate Quiz Digital',
   icons: {
-    icon: '/images/logo2.png',       
-    shortcut: '/images/logo2.png',   
-    apple: '/images/logo2.png',      
+    icon: '/images/logo2.png',
+    shortcut: '/images/logo2.png',
+    apple: '/images/logo2.png',
   },
-}
+};
 
 export default function RootLayout({
   children,
