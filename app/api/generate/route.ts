@@ -46,28 +46,173 @@ export async function POST(request: NextRequest) {
     // Tetap menggunakan gemini-2.5-flash seperti yang Anda minta
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-    // Tentukan komposisi soal
+    // Tentukan komposisi soal (nilai dari form; jangan timpa dengan fallback bila salah satu 0)
     let pilganCount = 0;
-    let uraianCount = 0;
+    let isianSingkatCount = 0;
 
     if (type === 'pilihan_ganda') {
       pilganCount = totalQuestions;
-      uraianCount = 0;
+      isianSingkatCount = 0;
+    } else if (type === 'isian') {
+      pilganCount = 0;
+      isianSingkatCount = totalQuestions;
+    } else if (type === 'campuran') {
+      pilganCount = Math.max(0, multipleChoiceCount);
+      isianSingkatCount = Math.max(0, shortAnswerCount);
+      if (pilganCount + isianSingkatCount !== totalQuestions) {
+        return NextResponse.json(
+          { error: 'Jumlah pilihan ganda + isian singkat harus sama dengan total soal.' },
+          { status: 400 },
+        );
+      }
     } else if (type === 'uraian') {
       pilganCount = 0;
-      uraianCount = totalQuestions;
+      isianSingkatCount = totalQuestions;
     } else {
-      pilganCount = multipleChoiceCount || Math.floor(totalQuestions / 2);
-      uraianCount = shortAnswerCount || Math.ceil(totalQuestions / 2);
+      pilganCount = totalQuestions;
+      isianSingkatCount = 0;
     }
 
-    let prompt = `Anda adalah seorang guru ahli. Buatlah soal ujian berdasarkan dokumen yang diberikan.
+    const commonRules = `PENTING: 
+1. JANGAN berikan teks apapun di luar JSON
+2. JANGAN gunakan markdown seperti \`\`\`json
+3. Langsung berikan array JSON
+4. Buat kalimat soal yang profesional dan objektif secara langsung. DILARANG KERAS menggunakan kalimat pengantar seperti "Berdasarkan modul...", "Menurut materi di atas...", atau sejenisnya. Uji pemahaman konsep secara langsung layaknya soal ujian sesungguhnya.`;
+
+    const pdfPart = {
+      inlineData: {
+        data: base64Data,
+        mimeType: 'application/pdf',
+      },
+    };
+
+    const parseGeminiQuestionArray = (raw: string, label: string): any[] => {
+      let cleanJson = raw.replace(/```json\n?/gi, '').replace(/```\n?/gi, '').trim();
+      const arrayMatch = cleanJson.match(/\[[\s\S]*\]/);
+      if (arrayMatch) cleanJson = arrayMatch[0];
+      const arr = JSON.parse(cleanJson);
+      if (!Array.isArray(arr) || arr.length === 0) {
+        throw new Error(`${label}: respons bukan array yang valid`);
+      }
+      return arr;
+    };
+
+    let questionsData: any[];
+
+    try {
+      if (type === 'campuran') {
+        questionsData = [];
+        console.log('Campuran: generate terpisah — PG:', pilganCount, 'isian:', isianSingkatCount);
+
+        if (pilganCount > 0) {
+          const promptMc = `Anda adalah seorang guru ahli. Buat TEPAT ${pilganCount} soal PILIHAN GANDA dari dokumen (tidak kurang, tidak lebih).
 Judul Kuis: ${title}
 Tingkat Kesulitan: ${difficulty}
-Total Soal: ${totalQuestions} (${pilganCount} soal pilihan ganda, ${uraianCount} soal isian singkat)
-Jenis Soal: ${type}
 
-Kembalikan hasil HANYA DALAM FORMAT JSON ARRAY tanpa markdown (tanpa \`\`\`json) dengan skema berikut:
+Kembalikan HANYA JSON ARRAY berisi ${pilganCount} objek. Setiap objek:
+{
+  "teks_soal": "...",
+  "tipe_soal": "pilihan_ganda",
+  "pilihan": [
+    { "teks": "...", "is_benar": true },
+    { "teks": "...", "is_benar": false },
+    { "teks": "...", "is_benar": false },
+    { "teks": "...", "is_benar": false }
+  ],
+  "penjelasan": "Penjelasan singkat jawaban benar"
+}
+
+${commonRules}
+5. Panjang array = ${pilganCount}. Semua objek harus "pilihan_ganda".`;
+
+          const resultMc = await model.generateContent([promptMc, pdfPart]);
+          const textMc = resultMc.response.text();
+          const mcArr = parseGeminiQuestionArray(textMc, 'Pilihan ganda');
+          if (mcArr.length < pilganCount) {
+            return NextResponse.json(
+              {
+                error: `Model hanya mengembalikan ${mcArr.length} soal pilihan ganda; diperlukan ${pilganCount}. Silakan coba lagi.`,
+              },
+              { status: 502 },
+            );
+          }
+          questionsData.push(...mcArr.slice(0, pilganCount));
+        }
+
+        if (isianSingkatCount > 0) {
+          const promptIsian = `Anda adalah seorang guru ahli. Buat TEPAT ${isianSingkatCount} soal ISIAN SINGKAT dari dokumen (tidak kurang, tidak lebih).
+Judul Kuis: ${title}
+Tingkat Kesulitan: ${difficulty}
+
+Kembalikan HANYA JSON ARRAY berisi ${isianSingkatCount} objek. Setiap objek:
+{
+  "teks_soal": "Pertanyaan isian singkat yang jelas...",
+  "tipe_soal": "isian_singkat",
+  "penjelasan": "Kunci jawaban 1–3 kata"
+}
+
+${commonRules}
+5. Panjang array = ${isianSingkatCount}. Setiap objek WAJIB "tipe_soal": "isian_singkat".`;
+
+          const resultIsian = await model.generateContent([promptIsian, pdfPart]);
+          const textIsian = resultIsian.response.text();
+          const isianArr = parseGeminiQuestionArray(textIsian, 'Isian singkat');
+          if (isianArr.length < isianSingkatCount) {
+            return NextResponse.json(
+              {
+                error: `Model hanya mengembalikan ${isianArr.length} soal isian singkat; diperlukan ${isianSingkatCount}. Silakan coba lagi.`,
+              },
+              { status: 502 },
+            );
+          }
+          questionsData.push(...isianArr.slice(0, isianSingkatCount));
+        }
+
+        console.log(`Campuran: total ${questionsData.length} soal dari Gemini (gabungan)`);
+      } else {
+        let prompt: string;
+        if (type === 'uraian') {
+          prompt = `Anda adalah seorang guru ahli. Buatlah soal URAIAN (essay) berdasarkan dokumen yang diberikan.
+Judul Kuis: ${title}
+Tingkat Kesulitan: ${difficulty}
+Total Soal: ${totalQuestions} (semua soal uraian / essay)
+
+Kembalikan hasil HANYA DALAM FORMAT JSON ARRAY tanpa markdown dengan skema berikut:
+[
+  {
+    "teks_soal": "Pertanyaan essay yang memerlukan jawaban panjang dan bernalar...",
+    "tipe_soal": "uraian",
+    "kunci_jawaban": "Ringkasan poin-poin jawaban yang benar (kunci jawaban singkat untuk pembanding).",
+    "penjelasan": "Penjelasan lengkap dan mendalam mengapa jawaban tersebut benar (beberapa kalimat hingga paragraf)."
+  }
+]
+
+${commonRules}
+5. Untuk setiap soal WAJIB ada "kunci_jawaban" DAN "penjelasan"; keduanya harus bermakna dan tidak kosong.`;
+        } else if (type === 'isian') {
+          prompt = `Anda adalah seorang guru ahli. Buatlah soal ISIAN SINGKAT berdasarkan dokumen yang diberikan.
+Judul Kuis: ${title}
+Tingkat Kesulitan: ${difficulty}
+Total Soal: ${totalQuestions} (semua isian singkat)
+
+Kembalikan hasil HANYA DALAM FORMAT JSON ARRAY tanpa markdown dengan skema berikut:
+[
+  {
+    "teks_soal": "Pertanyaan isian singkat yang jelas dan spesifik...",
+    "tipe_soal": "isian_singkat",
+    "penjelasan": "Kunci jawaban yang sangat singkat (1 hingga 3 kata) yang langsung menjawab pertanyaan"
+  }
+]
+
+${commonRules}
+5. Field "penjelasan" berisi HANYA kunci jawaban singkat (1–3 kata).`;
+        } else {
+          prompt = `Anda adalah seorang guru ahli. Buatlah soal pilihan ganda berdasarkan dokumen yang diberikan.
+Judul Kuis: ${title}
+Tingkat Kesulitan: ${difficulty}
+Total Soal: ${totalQuestions} (semua pilihan ganda)
+
+Kembalikan hasil HANYA DALAM FORMAT JSON ARRAY tanpa markdown dengan skema berikut:
 [
   {
     "teks_soal": "Pertanyaan soal...",
@@ -79,65 +224,25 @@ Kembalikan hasil HANYA DALAM FORMAT JSON ARRAY tanpa markdown (tanpa \`\`\`json)
       { "teks": "Pilihan D", "is_benar": false }
     ],
     "penjelasan": "Penjelasan mengapa jawaban tersebut benar..."
-  },
-  {
-    "teks_soal": "Pertanyaan isian singkat yang jelas dan spesifik...",
-    "tipe_soal": "uraian",
-    "penjelasan": "Kunci jawaban singkat (hanya 1 hingga 3 kata) yang langsung menjawab pertanyaan"
   }
 ]
 
-PENTING: 
-1. JANGAN berikan teks apapun di luar JSON
-2. JANGAN gunakan markdown seperti \`\`\`json
-3. Langsung berikan array JSON
-4. Untuk soal uraian (isian singkat), jawaban di field "penjelasan" WAJIB sangat singkat, maksimal 1-3 kata saja.
-5. Buat kalimat soal yang profesional dan objektif secara langsung. DILARANG KERAS menggunakan kalimat pengantar seperti "Berdasarkan modul...", "Menurut materi di atas...", atau sejenisnya. Uji pemahaman konsep secara langsung layaknya soal ujian sesungguhnya.`;
+${commonRules}`;
+        }
 
-    console.log('Mengirim request ke Gemini dengan model gemini-2.5-flash...');
-
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: 'application/pdf',
-        },
-      },
-    ]);
-
-    const textResult = result.response.text();
-    console.log('Response dari Gemini diterima, length:', textResult.length);
-
-    // Parsing JSON dengan lebih aman
-    let questionsData;
-    try {
-      let cleanJson = textResult;
-
-      // Hapus markdown code blocks
-      cleanJson = cleanJson.replace(/```json\n?/gi, '');
-      cleanJson = cleanJson.replace(/```\n?/gi, '');
-      cleanJson = cleanJson.trim();
-
-      // Cari array JSON (mulai dengan [ dan diakhiri ])
-      const arrayMatch = cleanJson.match(/\[[\s\S]*\]/);
-      if (arrayMatch) {
-        cleanJson = arrayMatch[0];
+        console.log('Mengirim request ke Gemini dengan model gemini-2.5-flash...');
+        const result = await model.generateContent([prompt, pdfPart]);
+        const textResult = result.response.text();
+        console.log('Response dari Gemini diterima, length:', textResult.length);
+        questionsData = parseGeminiQuestionArray(textResult, 'Soal');
+        console.log(`Berhasil parse ${questionsData.length} soal`);
       }
-
-      questionsData = JSON.parse(cleanJson);
-
-      if (!Array.isArray(questionsData) || questionsData.length === 0) {
-        throw new Error('Response bukan array yang valid');
-      }
-
-      console.log(`Berhasil parse ${questionsData.length} soal`);
-    } catch (e) {
-      console.error('Failed to parse AI response:', textResult.substring(0, 500));
+    } catch (e: any) {
+      console.error('Failed to parse AI response:', e?.message);
       return NextResponse.json(
         {
           error: 'Gagal memproses respons dari AI. Silakan coba lagi.',
-          detail: textResult.substring(0, 200),
+          detail: e?.message || String(e),
         },
         { status: 500 },
       );
@@ -160,7 +265,7 @@ PENTING:
         durasi_menit: duration,
         kkm: kkm,
         jumlah_pilgan: pilganCount,
-        jumlah_uraian: uraianCount,
+        jumlah_uraian: isianSingkatCount,
         total_soal: maxQuestions,
         status: 'draft',
         kode_kuis: kodeKuis,
@@ -176,20 +281,35 @@ PENTING:
     const kuisId = kuisData.kuis_id;
     console.log(`Kuis created with ID: ${kuisId}`);
 
+    const mapTipeSoal = (q: { tipe_soal?: string }, formType: string): 'pilihan_ganda' | 'isian_singkat' | 'uraian' => {
+      const raw = String(q.tipe_soal || '')
+        .toLowerCase()
+        .trim();
+      if (raw === 'pilihan_ganda' || raw === 'pilihan ganda') return 'pilihan_ganda';
+      if (raw === 'isian_singkat' || raw === 'isian singkat') return 'isian_singkat';
+      if (raw === 'uraian') {
+        if (formType === 'uraian') return 'uraian';
+        return 'isian_singkat';
+      }
+      if (formType === 'uraian') return 'uraian';
+      return 'isian_singkat';
+    };
+
     // 2. Simpan setiap soal dan pilihannya
     let savedCount = 0;
     for (let i = 0; i < maxQuestions; i++) {
       const q = questionsData[i];
 
-      // Validasi tipe soal
-      const tipeSoal = q.tipe_soal === 'pilihan_ganda' || q.tipe_soal === 'pilihan_ganda' ? 'pilihan_ganda' : 'uraian';
+      const tipeSoal = mapTipeSoal(q, type);
+      // Skema DB umumnya hanya punya pilihan_ganda | uraian; isian_singkat dipetakan ke uraian (kunci pendek, bukan essay JSON).
+      const tipeSoalDb: 'pilihan_ganda' | 'uraian' = tipeSoal === 'isian_singkat' ? 'uraian' : tipeSoal;
 
       const { data: soalData, error: soalError } = await supabase
         .from('soal')
         .insert({
           kuis_id: kuisId,
           teks_soal: q.teks_soal,
-          tipe_soal: tipeSoal,
+          tipe_soal: tipeSoalDb,
           poin: 10,
           urutan: i + 1,
         })
@@ -203,7 +323,7 @@ PENTING:
 
       const soalId = soalData.soal_id;
 
-      if (q.tipe_soal === 'pilihan_ganda' && q.pilihan && Array.isArray(q.pilihan)) {
+      if (tipeSoal === 'pilihan_ganda' && q.pilihan && Array.isArray(q.pilihan)) {
         // Simpan pilihan jawaban
         const pilihanToInsert = q.pilihan.map((p: any, idx: number) => ({
           soal_id: soalId,
@@ -226,13 +346,30 @@ PENTING:
           });
         }
         savedCount++;
-      } else if (q.tipe_soal === 'uraian') {
-        // Untuk soal uraian, gunakan penjelasan atau buat default
-        const jawabanText = q.penjelasan || q.kunci_jawaban_essay || 'Jawaban akan dinilai oleh guru.';
+      } else if (tipeSoal === 'uraian') {
+        const kunci = (q as any).kunci_jawaban || (q as any).kunci || '';
+        const penjelasan = (q as any).penjelasan || '';
+        const jawabanText = JSON.stringify({
+          kunci: String(kunci).trim() || '—',
+          penjelasan: String(penjelasan).trim() || 'Penjelasan resmi belum disertakan.',
+        });
 
         const { error: kunciError } = await supabase.from('kunci_jawaban').insert({
           soal_id: soalId,
           jawaban_text: jawabanText,
+          kata_kunci: [],
+        });
+
+        if (kunciError) {
+          console.error('Error insert kunci jawaban:', kunciError);
+        }
+        savedCount++;
+      } else {
+        const jawabanText = (q as any).penjelasan || (q as any).kunci || '—';
+
+        const { error: kunciError } = await supabase.from('kunci_jawaban').insert({
+          soal_id: soalId,
+          jawaban_text: String(jawabanText).trim(),
           kata_kunci: [],
         });
 

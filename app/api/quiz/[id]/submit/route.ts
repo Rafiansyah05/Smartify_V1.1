@@ -1,8 +1,112 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { isEssayUraian, normalizeAnswer, parseKunciJawaban } from '@/lib/quiz/kunci-jawaban';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+type GeminiShortResult = {
+  nilai: 0 | 0.5 | 1;
+  keterangan: string;
+  jawaban_benar: string;
+  penjelasan: string;
+};
+
+async function gradeIsianSingkatWithGemini(kunci: string, jawabanUser: string): Promise<{ result: GeminiShortResult | null; usedFallback: boolean }> {
+  const trimmedUser = (jawabanUser || '').trim();
+  if (!trimmedUser) {
+    return {
+      result: {
+        nilai: 0,
+        keterangan: 'Jawaban kosong',
+        jawaban_benar: kunci,
+        penjelasan: '',
+      },
+      usedFallback: false,
+    };
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    const exact = normalizeAnswer(trimmedUser) === normalizeAnswer(kunci);
+    return {
+      result: {
+        nilai: exact ? 1 : 0,
+        keterangan: exact ? 'Jawaban tepat (kecocokan persis)' : 'Jawaban salah (GEMINI_API_KEY tidak diset)',
+        jawaban_benar: kunci,
+        penjelasan: '',
+      },
+      usedFallback: true,
+    };
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: { responseMimeType: 'application/json' },
+    });
+
+    const prompt = `Jawaban Benar: ${kunci}
+Jawaban Pengguna: ${jawabanUser}
+
+SCORING RULES:
+- Normalize both answers: lowercase, trim whitespace
+- If exact match → score 1
+- If synonym or same meaning → score 1
+- If similar but imprecise → score 0.5
+- If wrong → score 0
+
+Output format (JSON only, no extra text):
+{
+  "nilai": 0 | 0.5 | 1,
+  "keterangan": "<brief explanation in Indonesian>",
+  "jawaban_benar": "<correct answer key>",
+  "penjelasan": "<short explanation of the correct answer>"
+}`;
+
+    const geminiResponse = await model.generateContent(prompt);
+    let textResult = geminiResponse.response.text().trim();
+    textResult = textResult.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+    const grading = JSON.parse(textResult) as Partial<GeminiShortResult>;
+    const nilai = grading.nilai;
+    const validNilai = nilai === 0 || nilai === 0.5 || nilai === 1 ? nilai : null;
+    if (validNilai === null) {
+      throw new Error('Invalid nilai from model');
+    }
+
+    return {
+      result: {
+        nilai: validNilai,
+        keterangan: grading.keterangan || '',
+        jawaban_benar: (grading.jawaban_benar || kunci).trim(),
+        penjelasan: (grading.penjelasan || '').trim(),
+      },
+      usedFallback: false,
+    };
+  } catch (error) {
+    console.error('Isian singkat Gemini grading error:', error);
+    const exact = normalizeAnswer(trimmedUser) === normalizeAnswer(kunci);
+    return {
+      result: {
+        nilai: exact ? 1 : 0,
+        keterangan: exact ? 'Jawaban tepat (dinilai dengan kecocokan persis; layanan AI tidak tersedia)' : 'Jawaban salah (dinilai dengan kecocokan persis; layanan AI tidak tersedia)',
+        jawaban_benar: kunci,
+        penjelasan: '',
+      },
+      usedFallback: true,
+    };
+  }
+}
+
+function scoreEssayUraian(studentAnswer: string, kunci: string): { points: number; isCorrect: boolean } {
+  if (!studentAnswer || !studentAnswer.trim()) {
+    return { points: 0, isCorrect: false };
+  }
+  if (normalizeAnswer(studentAnswer) === normalizeAnswer(kunci)) {
+    return { points: 10, isCorrect: true };
+  }
+  return { points: 0, isCorrect: false };
+}
 
 async function getRawQuizId(request: NextRequest, context: any) {
   const params = await context.params;
@@ -12,57 +116,6 @@ async function getRawQuizId(request: NextRequest, context: any) {
   }
   const pathnameParts = request.nextUrl.pathname.split('/').filter(Boolean);
   return pathnameParts[2] || null;
-}
-
-async function gradeEssay(studentAnswer: string, keyAnswer: string, questionText: string): Promise<{ score: number; feedback: string }> {
-  try {
-    if (!studentAnswer || studentAnswer.trim() === '') {
-      return { score: 0, feedback: 'Jawaban tidak diisi.' };
-    }
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
-      generationConfig: { responseMimeType: "application/json" }
-    });
-    const prompt = `Anda adalah seorang guru yang objektif dalam menilai isian singkat siswa.
-
-INPUT:
-Soal: ${questionText}
-Kunci Jawaban: ${keyAnswer}
-Jawaban Pengguna: ${studentAnswer}
-
-LANGKAH PENILAIAN:
-1. Identifikasi poin-poin penting dari kunci jawaban.
-2. Bandingkan jawaban pengguna dengan poin-poin tersebut. Beri nilai untuk setiap poin yang sesuai (gunakan pendekatan makna/semantic, bukan harus kata yang persis sama).
-3. Jika poin disebutkan sebagian → beri nilai parsial. Jika tidak disebutkan → nilai 0.
-
-KRITERIA PENILAIAN (Skala 0-10):
-9–10 → Sangat lengkap (semua poin utama + tambahan)
-7–8 → Lengkap (sebagian besar poin utama ada)
-5–6 → Cukup (hanya setengah poin)
-3–4 → Kurang (sedikit poin benar)
-0–2 → Tidak sesuai
-
-ATURAN TAMBAHAN:
-- Jangan terlalu ketat pada wording, fokus pada makna
-- Jawaban singkat tetap bisa mendapat nilai tinggi jika mencakup inti
-- Hindari penilaian subjektif, fokus pada kecocokan isi
-
-Berikan penilaian HANYA dalam format JSON murni:
-{
-  "score": <angka 0-10>,
-  "feedback": "Poin yang sudah benar: ..., Poin yang belum: ..., Saran: ..."
-}`;
-    const result = await model.generateContent(prompt);
-    const textResult = result.response.text();
-    const grading = JSON.parse(textResult);
-    return {
-      score: Math.min(100, Math.max(0, grading.score || 0)),
-      feedback: grading.feedback || 'Tidak ada feedback',
-    };
-  } catch (error) {
-    console.error('Essay grading error:', error);
-    return { score: 50, feedback: 'Penilaian otomatis, guru akan memeriksa ulang.' };
-  }
 }
 
 export async function POST(request: NextRequest, context: any) {
@@ -82,13 +135,11 @@ export async function POST(request: NextRequest, context: any) {
       return NextResponse.json({ error: 'pesertaId dan answers wajib diisi' }, { status: 400 });
     }
 
-    // Validasi peserta
     const { data: pesertaExists, error: pesertaError } = await supabase.from('peserta_kuis').select('peserta_id, nama_siswa, status').eq('peserta_id', pesertaId).maybeSingle();
     if (pesertaError || !pesertaExists) {
       return NextResponse.json({ error: 'Peserta tidak ditemukan' }, { status: 404 });
     }
 
-    // Cegah double submit
     if (pesertaExists.status === 'selesai') {
       const { data: existingHasil } = await supabase.from('hasil_kuis').select('nilai, status_lulus, status_remedial, durasi_pengerjaan').eq('peserta_id', pesertaId).maybeSingle();
       return NextResponse.json({
@@ -101,19 +152,16 @@ export async function POST(request: NextRequest, context: any) {
 
     console.log('Processing submission for:', pesertaExists.nama_siswa);
 
-    // Ambil quiz info
     const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, tingkat_kesulitan, kkm').eq('kuis_id', quizIdInt).single();
     if (quizError || !quiz) {
       return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
     }
 
-    // Ambil semua soal
     const { data: questions, error: questionsError } = await supabase.from('soal').select('*').eq('kuis_id', quizIdInt);
     if (questionsError || !questions) {
       return NextResponse.json({ error: 'Gagal mengambil soal' }, { status: 500 });
     }
 
-    // Batch ambil pilihan_jawaban dan kunci_jawaban
     const soalIds = questions.map((q) => q.soal_id);
     const { data: allPilihan } = await supabase.from('pilihan_jawaban').select('*').in('soal_id', soalIds);
     const { data: allKunci } = await supabase.from('kunci_jawaban').select('*').in('soal_id', soalIds);
@@ -140,10 +188,11 @@ export async function POST(request: NextRequest, context: any) {
 
     const jawabanRecords: any[] = [];
     const weakAnswers: any[] = [];
+    let anyAiGradingFallback = false;
 
     for (const question of questionsWithDetails) {
       const studentAnswer = answers[question.soal_id];
-      const maxPoinSoal = 10; // Seperti yang Anda minta: poin paten 10
+      const maxPoinSoal = 10;
       totalPossiblePoints += maxPoinSoal;
 
       let isCorrect = false;
@@ -153,7 +202,7 @@ export async function POST(request: NextRequest, context: any) {
       if (question.tipe_soal === 'pilihan_ganda') {
         const correctOption = question.pilihan_jawaban?.find((p: any) => p.is_benar);
         correctAnswerText = correctOption?.teks_pilihan || '';
-        
+
         if (studentAnswer && studentAnswer === correctAnswerText) {
           isCorrect = true;
           pointsEarned = 10;
@@ -171,34 +220,59 @@ export async function POST(request: NextRequest, context: any) {
             konsep: question.kunci_jawaban?.jawaban_text || '',
           });
         }
-      } else if (question.tipe_soal === 'uraian') {
-        const kunci = question.kunci_jawaban;
-        const keyAnswer = kunci?.jawaban_text || '';
-        correctAnswerText = keyAnswer;
-        if (!studentAnswer || studentAnswer.trim() === '') {
-          pointsEarned = 0;
-          incorrectCount++;
-        } else {
-          const grading = await gradeEssay(studentAnswer, keyAnswer, question.teks_soal);
-          
-          let parsedScore = parseFloat(grading.score as any) || 0;
-          // Antisipasi jika AI halusinasi memberikan skala 0-100 walau diminta 0-10
-          if (parsedScore > 10) {
-            parsedScore = (parsedScore / 100) * 10;
-          }
-          parsedScore = Math.min(10, Math.max(0, parsedScore));
-          
-          pointsEarned = Number(parsedScore.toFixed(2));
-          if (pointsEarned > 5) {
-            correctCount++;
-            isCorrect = true;
-          } else {
+      } else {
+        const kunciRow = question.kunci_jawaban;
+        const rawKey = kunciRow?.jawaban_text || '';
+        const parsed = parseKunciJawaban(rawKey);
+        const essay = isEssayUraian(question.tipe_soal, rawKey);
+        const useGeminiShort =
+          question.tipe_soal === 'isian_singkat' || (question.tipe_soal === 'uraian' && !essay);
+
+        if (useGeminiShort) {
+          const keyForCompare = parsed.kunci || rawKey;
+          correctAnswerText = keyForCompare;
+
+          if (!studentAnswer || String(studentAnswer).trim() === '') {
+            pointsEarned = 0;
             incorrectCount++;
+          } else {
+            const { result: grading, usedFallback } = await gradeIsianSingkatWithGemini(keyForCompare, String(studentAnswer));
+            if (usedFallback) anyAiGradingFallback = true;
+            if (!grading) {
+              pointsEarned = 0;
+              incorrectCount++;
+            } else {
+              pointsEarned = Number((grading.nilai * 10).toFixed(2));
+              if (grading.nilai === 1) {
+                correctCount++;
+                isCorrect = true;
+              } else {
+                incorrectCount++;
+                if (grading.nilai === 0) {
+                  weakAnswers.push({
+                    teks_soal: question.teks_soal,
+                    jawaban_siswa: studentAnswer,
+                    jawaban_benar: grading.jawaban_benar || keyForCompare,
+                    konsep: grading.penjelasan || '',
+                  });
+                }
+              }
+            }
+          }
+        } else {
+          const keyForEssay = parsed.kunci || rawKey;
+          correctAnswerText = keyForEssay;
+          const scored = scoreEssayUraian(String(studentAnswer || ''), keyForEssay);
+          pointsEarned = scored.points;
+          isCorrect = scored.isCorrect;
+          if (isCorrect) correctCount++;
+          else incorrectCount++;
+          if (!isCorrect) {
             weakAnswers.push({
               teks_soal: question.teks_soal,
-              jawaban_siswa: studentAnswer,
-              jawaban_benar: keyAnswer,
-              konsep: kunci?.jawaban_text || '',
+              jawaban_siswa: studentAnswer || '',
+              jawaban_benar: keyForEssay,
+              konsep: parsed.penjelasan || kunciRow?.jawaban_text || '',
             });
           }
         }
@@ -216,14 +290,12 @@ export async function POST(request: NextRequest, context: any) {
     }
 
     let finalScore = totalPossiblePoints > 0 ? (totalScore / totalPossiblePoints) * 100 : 0;
-    finalScore = Math.min(100, Math.max(0, finalScore)); // Cap at 100
-    finalScore = Number(finalScore.toFixed(2)); // Decimal 2 places
+    finalScore = Math.min(100, Math.max(0, finalScore));
+    finalScore = Number(finalScore.toFixed(2));
 
-    // === LOGGING SAVE JAWABAN ===
     console.log('📝 Jawaban records to save:', jawabanRecords.length);
     console.log('📊 Total score:', totalScore, 'from', totalPossiblePoints);
 
-    // Hapus dahulu jika ada submission sebelumnya (mencegah duplicate constraint tanpa onConflict)
     await supabase.from('jawaban_siswa').delete().eq('peserta_id', pesertaId);
 
     const { error: jawabanError } = await supabase.from('jawaban_siswa').insert(jawabanRecords);
@@ -234,7 +306,6 @@ export async function POST(request: NextRequest, context: any) {
       console.log('✅ Jawaban berhasil disimpan:', jawabanRecords.length, 'records');
     }
 
-    // Ambil waktu mulai dan pastikan timezone UTC agar tidak terjadi offset jam
     const { data: hasilExisting } = await supabase.from('hasil_kuis').select('waktu_mulai').eq('peserta_id', pesertaId).maybeSingle();
 
     let waktuMulaiStr = hasilExisting?.waktu_mulai;
@@ -244,7 +315,6 @@ export async function POST(request: NextRequest, context: any) {
     const waktuMulai = waktuMulaiStr ? new Date(waktuMulaiStr) : submitTime;
     const durasiPengerjaan = Math.max(0, Math.round((submitTime.getTime() - waktuMulai.getTime()) / 1000));
 
-    // Update hasil_kuis (karena sudah di-insert saat start/mulai, kita cukup update saja)
     const { error: hasilError } = await supabase.from('hasil_kuis').update({
       nilai: finalScore,
       status_lulus: finalScore >= (quiz.kkm || 70),
@@ -257,7 +327,6 @@ export async function POST(request: NextRequest, context: any) {
       console.error('Update hasil_kuis error:', hasilError);
     }
 
-    // Update status peserta
     const { error: pesertaUpdateError } = await supabase.from('peserta_kuis').update({ status: 'selesai' }).eq('peserta_id', pesertaId);
 
     if (pesertaUpdateError) {
@@ -276,6 +345,10 @@ export async function POST(request: NextRequest, context: any) {
         durasiPengerjaan,
       },
       weakAnswers,
+      aiGradingFallback: anyAiGradingFallback,
+      aiGradingFallbackNote: anyAiGradingFallback
+        ? 'Beberapa jawaban isian singkat dinilai dengan kecocokan persis karena penilaian AI tidak tersedia atau gagal.'
+        : undefined,
     });
   } catch (error: any) {
     console.error('Submit quiz error:', error);

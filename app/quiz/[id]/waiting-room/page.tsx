@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { MoreVertical, RefreshCw, Users, Clock, FileText, Award } from 'lucide-react';
+import { MoreVertical, RefreshCw, Users, User, UserMinus } from 'lucide-react';
 import { Navbar } from '@/components/dashboard/Navbar';
 import { supabase } from '@/lib/supabase/client';
 
@@ -34,8 +34,26 @@ export default function WaitingRoomPage() {
 
   const hasRedirectedRef = useRef(false);
   const channelRef = useRef<any>(null);
+  const participantEverInListRef = useRef(false);
+  const kickHandledRef = useRef(false);
+  const studentPesertaIdRef = useRef<number | null>(null);
+  const [participantMenuId, setParticipantMenuId] = useState<number | null>(null);
+  const [kickConfirm, setKickConfirm] = useState<{ id: number; name: string } | null>(null);
+  const [kicking, setKicking] = useState(false);
 
   const isTeacher = useMemo(() => user?.role === 'guru' || user?.role === 'admin', [user]);
+
+  useEffect(() => {
+    studentPesertaIdRef.current = joinedParticipant?.peserta_id ?? null;
+  }, [joinedParticipant?.peserta_id]);
+
+  useEffect(() => {
+    if (!joinedParticipant?.peserta_id || isTeacher) return;
+    if (participants.some((p) => p.peserta_id === joinedParticipant.peserta_id)) {
+      participantEverInListRef.current = true;
+    }
+  }, [participants, joinedParticipant?.peserta_id, isTeacher]);
+
   const qrUrl = useMemo(() => {
     if (!qrCode?.qr_image_url) return null;
     return `${window.location.origin}${qrCode.qr_image_url}`;
@@ -44,6 +62,36 @@ export default function WaitingRoomPage() {
   // === STORAGE KEYS ===
   const getParticipantStorageKey = useCallback(() => `quiz-participant-${id}`, [id]);
   const getWaitingRoomStorageKey = useCallback(() => `waiting-room-${id}-${qrToken}`, [id, qrToken]);
+
+  useEffect(() => {
+    if (isTeacher || !joinedParticipant?.peserta_id || loading) return;
+    const me = joinedParticipant.peserta_id;
+    const inList = participants.some((p) => p.peserta_id === me);
+    if (inList) participantEverInListRef.current = true;
+    if (participantEverInListRef.current && !inList && !kickHandledRef.current) {
+      kickHandledRef.current = true;
+      participantEverInListRef.current = false;
+      try {
+        localStorage.removeItem(getParticipantStorageKey());
+        if (qrToken) localStorage.removeItem(getWaitingRoomStorageKey());
+        sessionStorage.removeItem(`quiz-session-${id}`);
+      } catch {
+        /* ignore */
+      }
+      window.alert('Anda telah dikeluarkan dari ruang tunggu oleh guru.');
+      router.push('/');
+    }
+  }, [
+    participants,
+    joinedParticipant,
+    isTeacher,
+    loading,
+    id,
+    qrToken,
+    router,
+    getParticipantStorageKey,
+    getWaitingRoomStorageKey,
+  ]);
 
   // === SAVE PARTICIPANT (STABLE) ===
   const saveParticipantToStorage = useCallback(
@@ -190,6 +238,25 @@ export default function WaitingRoomPage() {
     // Listen for new participants
     channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'peserta_kuis', filter: `kuis_id=eq.${quizIdInt}` }, () => fetchRoom(false));
 
+    channel.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'peserta_kuis' }, (payload: any) => {
+      const oldId = payload.old?.peserta_id as number | undefined;
+      if (oldId && oldId === studentPesertaIdRef.current && !isTeacher && !kickHandledRef.current) {
+        kickHandledRef.current = true;
+        participantEverInListRef.current = false;
+        try {
+          localStorage.removeItem(getParticipantStorageKey());
+          if (qrToken) localStorage.removeItem(getWaitingRoomStorageKey());
+          sessionStorage.removeItem(`quiz-session-${id}`);
+        } catch {
+          /* ignore */
+        }
+        window.alert('Anda telah dikeluarkan dari ruang tunggu oleh guru.');
+        router.push('/');
+        return;
+      }
+      fetchRoom(false);
+    });
+
     channel.subscribe((status) => {
       console.log(`📡 Waiting room realtime status:`, status);
       setIsRealtimeConnected(status === 'SUBSCRIBED');
@@ -274,6 +341,8 @@ export default function WaitingRoomPage() {
         savedAt: new Date().toISOString(),
         qrToken,
       };
+      kickHandledRef.current = false;
+      participantEverInListRef.current = true;
       setJoinedParticipant(participantToStore);
       saveParticipantToStorage(participantToStore);
       setParticipants((prev) => [...prev, data.participant]);
@@ -289,6 +358,31 @@ export default function WaitingRoomPage() {
   const openQrFull = () => {
     if (!qrUrl) return;
     window.open(qrUrl, '_blank');
+  };
+
+  const handleConfirmKick = async () => {
+    if (!kickConfirm || !id) return;
+    setKicking(true);
+    try {
+      const res = await fetch(`/api/quiz/${id}/waiting-room/kick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ pesertaId: kickConfirm.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        window.alert(data.error || 'Gagal mengeluarkan siswa');
+        return;
+      }
+      setKickConfirm(null);
+      setParticipantMenuId(null);
+      await fetchRoom(false);
+    } catch {
+      window.alert('Terjadi kesalahan saat mengeluarkan siswa');
+    } finally {
+      setKicking(false);
+    }
   };
 
   const getDifficultyColor = (difficulty: string) => {
@@ -308,61 +402,55 @@ export default function WaitingRoomPage() {
   };
 
   const renderJoinCard = () => (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-        <div className="flex flex-col items-center gap-4 mb-6">
-          <Image src="/images/logo2.png" alt="Smartify" width={80} height={80} priority />
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-800">Masuk Ruangan</h1>
-            <p className="text-sm text-gray-500 mt-2">Masukkan nama lengkap untuk bergabung ke kuis.</p>
+    <div className="flex min-h-screen flex-col bg-background">
+      <main className="flex flex-1 items-center justify-center px-4 py-12">
+        <div className="mx-auto w-full max-w-md">
+          <div className="rounded-2xl border border-border bg-card p-8 shadow-sm md:p-10">
+            <div className="mb-6 flex flex-col items-center">
+              <Image src="/images/logo_smartify.png" alt="Smartify" width={120} height={40} priority />
+            </div>
+            <div className="mb-6 border-t border-border" />
+            <h1 className="mb-2 text-center text-2xl font-bold text-card-foreground">Masuk Ruangan</h1>
+            <p className="mb-6 text-center text-sm text-muted-foreground">Masukkan nama lengkap untuk bergabung ke kuis.</p>
+            {quiz && <p className="mb-6 text-center text-base font-semibold text-card-foreground">{quiz.judul}</p>}
+            <form onSubmit={handleJoin} className="space-y-5">
+              <div className="space-y-2">
+                <label htmlFor="joinName" className="block text-sm font-medium text-[#3E484F]">
+                  Nama Lengkap
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <input
+                    id="joinName"
+                    value={joinName}
+                    onChange={(e) => setJoinName(e.target.value)}
+                    placeholder="Contoh: Budi Santoso"
+                    className="w-full rounded-xl border-0 bg-input py-3 pl-12 pr-4 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+              {joinError && <p className="text-sm text-red-600">{joinError}</p>}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full rounded-xl bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {submitting ? 'Memproses...' : 'Masuk'}
+              </button>
+            </form>
           </div>
         </div>
-        {quiz && (
-          <div className="mb-6 rounded-2xl bg-gray-50 p-5 border border-gray-100">
-            <p className="text-xs uppercase tracking-widest text-gray-400 mb-2">{quiz.judul}</p>
-            <div className="grid grid-cols-3 gap-3 text-sm text-gray-600">
-              <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
-                <p className="font-semibold text-gray-900">{quiz.total_soal}</p>
-                <span className="text-xs">Soal</span>
-              </div>
-              <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
-                <p className="font-semibold text-gray-900">{quiz.durasi_menit}m</p>
-                <span className="text-xs">Durasi</span>
-              </div>
-              <div className="rounded-xl bg-white p-3 text-center border border-gray-100">
-                <p className={`font-semibold capitalize ${getDifficultyColor(quiz.tingkat_kesulitan)}`}>{quiz.tingkat_kesulitan}</p>
-                <span className="text-xs">Level</span>
-              </div>
-            </div>
-          </div>
-        )}
-        <form onSubmit={handleJoin} className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="joinName" className="block text-sm font-medium text-gray-700">
-              Nama Lengkap
-            </label>
-            <input
-              id="joinName"
-              value={joinName}
-              onChange={(e) => setJoinName(e.target.value)}
-              placeholder="Contoh: Royma Teddy"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-            />
-          </div>
-          {joinError && <p className="text-sm text-red-600">{joinError}</p>}
-          <button type="submit" disabled={submitting} className="w-full rounded-full bg-cyan-400 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-cyan-500 disabled:opacity-50">
-            {submitting ? 'Memproses...' : 'Masuk'}
-          </button>
-        </form>
-      </div>
+      </main>
     </div>
   );
 
   const renderStudentWaitingView = () => (
     <div className="min-h-screen bg-gray-50">
       <Navbar fullWidth showBackButton backButtonText="Back to Dashboard" />
-      <main className="pt-20 pb-16">
-        <div className="max-w-4xl mx-auto px-6">
+      <main className="pb-16 pt-20">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             <div className="mb-8">
               <div className="flex items-center justify-between">
@@ -382,24 +470,6 @@ export default function WaitingRoomPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-4 mb-8">
-              <div className="text-center p-4 bg-gray-50 rounded-xl">
-                <FileText className="w-5 h-5 text-gray-400 mx-auto mb-2" />
-                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">QUESTIONS</p>
-                <p className="text-2xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
-              </div>
-              <div className="text-center p-4 bg-gray-50 rounded-xl">
-                <Clock className="w-5 h-5 text-gray-400 mx-auto mb-2" />
-                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">TIME LIMIT</p>
-                <p className="text-2xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
-              </div>
-              <div className="text-center p-4 bg-gray-50 rounded-xl">
-                <Award className="w-5 h-5 text-gray-400 mx-auto mb-2" />
-                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">DIFFICULTY</p>
-                <p className={`text-2xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
-              </div>
-            </div>
-
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
@@ -408,14 +478,13 @@ export default function WaitingRoomPage() {
                 </h2>
               </div>
               {participants.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                   {participants.map((p) => (
-                    <div key={p.peserta_id} className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-800 text-sm truncate">{p.nama_siswa}</p>
+                    <div key={p.peserta_id} className="flex min-w-0 items-center justify-between rounded-xl border border-gray-100 bg-gray-50 p-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-800">{p.nama_siswa}</p>
                         <span className="text-xs text-emerald-500">✓ Siap</span>
                       </div>
-                      <MoreVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     </div>
                   ))}
                 </div>
@@ -449,8 +518,8 @@ export default function WaitingRoomPage() {
   const renderTeacherView = () => (
     <div className="min-h-screen bg-gray-50">
       <Navbar fullWidth showBackButton backButtonText="Back to Dashboard" />
-      <main className="pt-20 pb-16">
-        <div className="max-w-6xl mx-auto px-6">
+      <main className="pb-16 pt-20">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
               <div>
@@ -463,29 +532,33 @@ export default function WaitingRoomPage() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-6 flex-wrap">
-                <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
+                <div className="flex flex-wrap items-center gap-4 sm:gap-6">
                   <div className="text-center">
-                    <p className="text-xs uppercase tracking-wider text-gray-400">QUESTIONS</p>
+                    <p className="text-xs uppercase tracking-wider text-gray-400">SOAL</p>
                     <p className="text-xl font-bold text-gray-800">{quiz?.total_soal || 0}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs uppercase tracking-wider text-gray-400">TIME LIMIT</p>
+                    <p className="text-xs uppercase tracking-wider text-gray-400">WAKTU</p>
                     <p className="text-xl font-bold text-gray-800">{quiz?.durasi_menit || 0}m</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs uppercase tracking-wider text-gray-400">DIFFICULTY</p>
+                    <p className="text-xs uppercase tracking-wider text-gray-400">LEVEL</p>
                     <p className={`text-xl font-bold capitalize ${getDifficultyColor(quiz?.tingkat_kesulitan)}`}>{quiz?.tingkat_kesulitan || 'Medium'}</p>
                   </div>
                 </div>
-                <button onClick={handleStartQuiz} disabled={starting || quiz?.status === 'ongoing'} className="px-6 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 shadow-sm">
+                <button
+                  onClick={handleStartQuiz}
+                  disabled={starting || quiz?.status === 'ongoing'}
+                  className="rounded-full bg-primary px-6 py-3 font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+                >
                   {quiz?.status === 'ongoing' ? 'Kuis Berlangsung' : starting ? 'Memulai...' : 'Mulai Kuis Sekarang!'}
                 </button>
               </div>
             </div>
             {startError && <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{startError}</div>}
-            <div className="grid lg:grid-cols-[320px_1fr] gap-8">
-              <div className="bg-gray-50 rounded-2xl border border-gray-100 p-6">
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,320px)_1fr]">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 sm:p-6">
                 <div className="text-center">
                   {qrUrl ? (
                     <div className="relative mx-auto w-full max-w-[220px]">
@@ -519,14 +592,46 @@ export default function WaitingRoomPage() {
                   </button>
                 </div>
                 {participants.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                     {participants.map((p) => (
-                      <div key={p.peserta_id} className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-800 text-sm truncate">{p.nama_siswa}</p>
+                      <div key={p.peserta_id} className="relative flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 p-3">
+                        <div className="min-w-0 flex-1 pr-2">
+                          <p className="truncate text-sm font-medium text-gray-800">{p.nama_siswa}</p>
                           <span className="text-xs text-emerald-500">✓ Siap</span>
                         </div>
-                        <MoreVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setParticipantMenuId(participantMenuId === p.peserta_id ? null : p.peserta_id)}
+                            className="rounded-lg p-1.5 text-gray-400 hover:bg-white"
+                            aria-label="Menu siswa"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+                          {participantMenuId === p.peserta_id && (
+                            <>
+                              <button
+                                type="button"
+                                className="fixed inset-0 z-10 cursor-default"
+                                aria-hidden
+                                onClick={() => setParticipantMenuId(null)}
+                              />
+                              <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setParticipantMenuId(null);
+                                    setKickConfirm({ id: p.peserta_id, name: p.nama_siswa });
+                                  }}
+                                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-gray-50"
+                                >
+                                  <UserMinus className="h-4 w-4" />
+                                  Keluarkan
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -545,41 +650,101 @@ export default function WaitingRoomPage() {
     </div>
   );
 
+  const kickModal = kickConfirm ? (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-card-foreground">Keluarkan siswa?</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          <strong>{kickConfirm.name}</strong> akan dikeluarkan dari ruang tunggu dan tidak dapat bergabung lagi sampai scan ulang.
+        </p>
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={() => setKickConfirm(null)}
+            disabled={kicking}
+            className="rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-card-foreground hover:bg-input disabled:opacity-50"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirmKick}
+            disabled={kicking}
+            className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {kicking ? 'Memproses...' : 'Keluarkan'}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   if (isCheckingStorage) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
-        <p className="ml-3 text-gray-500">Memeriksa sesi...</p>
-      </div>
+      <>
+        {kickModal}
+        <div className="flex min-h-screen items-center justify-center bg-gray-50">
+          <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-cyan-400"></div>
+          <p className="ml-3 text-gray-500">Memeriksa sesi...</p>
+        </div>
+      </>
     );
   }
 
   if (loading && !isCheckingStorage) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
-      </div>
+      <>
+        {kickModal}
+        <div className="flex min-h-screen items-center justify-center bg-gray-50">
+          <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-cyan-400"></div>
+        </div>
+      </>
     );
   }
 
   if (roomError) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-100 p-8 text-center shadow-sm">
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">Ruangan Tidak Ditemukan</h1>
-          <p className="text-sm text-gray-500 mb-6">{roomError}</p>
-          <button onClick={() => router.push('/dashboard')} className="rounded-full bg-cyan-400 px-6 py-3 text-sm font-semibold text-white hover:bg-cyan-500">
-            Kembali ke Dashboard
-          </button>
+      <>
+        {kickModal}
+        <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
+            <h1 className="mb-4 text-2xl font-bold text-gray-800">Ruangan Tidak Ditemukan</h1>
+            <p className="mb-6 text-sm text-gray-500">{roomError}</p>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Kembali ke Dashboard
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (!isCheckingStorage) {
-    if (!isTeacher && !joinedParticipant && qrToken) return renderJoinCard();
-    if (!isTeacher && joinedParticipant) return renderStudentWaitingView();
+    if (!isTeacher && !joinedParticipant && qrToken) {
+      return (
+        <>
+          {kickModal}
+          {renderJoinCard()}
+        </>
+      );
+    }
+    if (!isTeacher && joinedParticipant) {
+      return (
+        <>
+          {kickModal}
+          {renderStudentWaitingView()}
+        </>
+      );
+    }
   }
 
-  return renderTeacherView();
+  return (
+    <>
+      {kickModal}
+      {renderTeacherView()}
+    </>
+  );
 }

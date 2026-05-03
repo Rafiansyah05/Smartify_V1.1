@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Lightbulb, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 import { Navbar } from '@/components/dashboard/Navbar';
 
 interface QuestionResult {
   soal_id: number;
   teks_soal: string;
-  tipe_soal: 'pilihan_ganda' | 'uraian';
+  tipe_soal: 'pilihan_ganda' | 'isian_singkat' | 'uraian';
   urutan: number;
   poin_maksimal: number;
   pilihan: Array<{
@@ -44,11 +44,17 @@ export default function QuizReviewPage() {
   const filteredQuestions = viewMode === 'incorrect' ? questionResults.filter((q) => !q.is_benar) : questionResults;
   const currentQuestion = filteredQuestions[currentIndex];
 
+  const typeBadge = (t: QuestionResult['tipe_soal']) => {
+    if (t === 'pilihan_ganda') return 'Pilihan Ganda';
+    if (t === 'isian_singkat') return 'Isian Singkat';
+    return 'Uraian';
+  };
+
   const getQuestionStatusUI = (q: QuestionResult) => {
-    if (q.tipe_soal === 'uraian') {
+    if (q.tipe_soal === 'uraian' || q.tipe_soal === 'isian_singkat') {
       if (q.poin_dapat === q.poin_maksimal && q.poin_maksimal > 0) {
         return { text: 'Benar', bg: 'bg-emerald-100', textCol: 'text-emerald-700', border: 'border-emerald-200', icon: <CheckCircle2 className="w-4 h-4" /> };
-      } else if (q.poin_dapat > 5 && q.poin_dapat < q.poin_maksimal) {
+      } else if (q.poin_dapat > 0 && q.poin_dapat < q.poin_maksimal) {
         return { text: 'Sebagian Benar', bg: 'bg-yellow-100', textCol: 'text-yellow-700', border: 'border-yellow-200', icon: <CheckCircle2 className="w-4 h-4" /> };
       } else {
         return { text: 'Salah', bg: 'bg-red-100', textCol: 'text-red-700', border: 'border-red-200', icon: <XCircle className="w-4 h-4" /> };
@@ -226,7 +232,7 @@ export default function QuizReviewPage() {
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
                         <h2 className="text-lg font-bold text-gray-800">Soal {viewMode === 'all' ? currentQuestion.urutan : currentIndex + 1}</h2>
-                        <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full">{currentQuestion.tipe_soal === 'pilihan_ganda' ? 'Pilihan Ganda' : 'Uraian'}</span>
+                        <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full">{typeBadge(currentQuestion.tipe_soal)}</span>
                       </div>
                       <div className={`flex items-center gap-2 px-4 py-2 rounded-full ${getQuestionStatusUI(currentQuestion).bg} ${getQuestionStatusUI(currentQuestion).textCol}`}>
                         {getQuestionStatusUI(currentQuestion).icon}
@@ -277,8 +283,8 @@ export default function QuizReviewPage() {
                       </div>
                     )}
 
-                    {/* Uraian Answer Review */}
-                    {currentQuestion.tipe_soal === 'uraian' && (
+                    {/* Teks (Uraian & Isian singkat) */}
+                    {(currentQuestion.tipe_soal === 'uraian' || currentQuestion.tipe_soal === 'isian_singkat') && (
                       <div className="space-y-4 mb-6">
                         <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                           <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Jawaban Anda:</p>
@@ -299,9 +305,9 @@ export default function QuizReviewPage() {
                       </span>
                     </div>
 
-                    {/* Penjelasan */}
-                    {currentQuestion.penjelasan && (
-                      <div className="p-5 bg-cyan-50 rounded-xl border border-cyan-100">
+                    {/* Penjelasan pilihan ganda */}
+                    {currentQuestion.tipe_soal === 'pilihan_ganda' && currentQuestion.penjelasan && (
+                      <div className="p-5 bg-cyan-50 rounded-xl border border-cyan-100 mb-6">
                         <div className="flex items-start gap-3">
                           <div className="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center flex-shrink-0">
                             <Lightbulb className="w-4 h-4 text-cyan-600" />
@@ -328,23 +334,14 @@ export default function QuizReviewPage() {
                         Sebelumnya
                       </button>
                       
-                      {currentIndex === filteredQuestions.length - 1 ? (
-                        <button
-                          onClick={() => router.push(`/quiz/${id}/result?token=${qrToken}&pesertaId=${pesertaId}`)}
-                          className="flex items-center gap-2 px-6 py-3 bg-[#42bbed] hover:bg-[#3ba8d5] text-white font-semibold rounded-full transition-colors"
-                        >
-                          Kumpulkan
-                          <CheckCircle2 className="w-5 h-5" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleNext}
-                          className="flex items-center gap-2 px-6 py-3 bg-[#42bbed] hover:bg-[#3ba8d5] text-white font-semibold rounded-full transition-colors"
-                        >
-                          Selanjutnya
-                          <ChevronRight className="w-5 h-5" />
-                        </button>
-                      )}
+                      <button
+                        onClick={handleNext}
+                        disabled={currentIndex === filteredQuestions.length - 1}
+                        className="flex items-center gap-2 px-6 py-3 bg-[#42bbed] hover:bg-[#3ba8d5] text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Selanjutnya
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
                     </div>
                   </>
                 )}

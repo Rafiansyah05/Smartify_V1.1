@@ -80,3 +80,61 @@ export async function GET(request: NextRequest, context: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest, context: any) {
+  try {
+    const token = request.cookies.get('auth_token')?.value;
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const user = await getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const params = await context.params;
+    const idRaw = params?.id;
+    const quizId = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+    const quizIdInt = parseInt(quizId);
+    if (isNaN(quizIdInt)) {
+      return NextResponse.json({ error: 'ID kuis tidak valid' }, { status: 400 });
+    }
+
+    const { data: kuis, error: kuisErr } = await supabase.from('kuis').select('kuis_id, guru_id').eq('kuis_id', quizIdInt).maybeSingle();
+    if (kuisErr || !kuis) {
+      return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
+    }
+    if (kuis.guru_id !== user.user_id) {
+      return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 });
+    }
+
+    const { data: pesertaRows } = await supabase.from('peserta_kuis').select('peserta_id').eq('kuis_id', quizIdInt);
+    const pesertaIds = (pesertaRows || []).map((p) => p.peserta_id);
+    if (pesertaIds.length > 0) {
+      await supabase.from('jawaban_siswa').delete().in('peserta_id', pesertaIds);
+      await supabase.from('hasil_kuis').delete().in('peserta_id', pesertaIds);
+    }
+    await supabase.from('peserta_kuis').delete().eq('kuis_id', quizIdInt);
+
+    const { data: soalRows } = await supabase.from('soal').select('soal_id').eq('kuis_id', quizIdInt);
+    const soalIds = (soalRows || []).map((s) => s.soal_id);
+    if (soalIds.length > 0) {
+      await supabase.from('pilihan_jawaban').delete().in('soal_id', soalIds);
+      await supabase.from('kunci_jawaban').delete().in('soal_id', soalIds);
+    }
+    await supabase.from('soal').delete().eq('kuis_id', quizIdInt);
+    await supabase.from('qr_codes').delete().eq('kuis_id', quizIdInt);
+    await supabase.from('dokumen').delete().eq('kuis_id', quizIdInt);
+
+    const { error: delKuisErr } = await supabase.from('kuis').delete().eq('kuis_id', quizIdInt);
+    if (delKuisErr) {
+      console.error('Delete kuis error:', delKuisErr);
+      return NextResponse.json({ error: 'Gagal menghapus kuis' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('DELETE quiz error:', error);
+    return NextResponse.json({ error: error.message || 'Terjadi kesalahan' }, { status: 500 });
+  }
+}

@@ -106,8 +106,14 @@ export default function GenerateQuizPage() {
       formData.append('type', quizType);
       formData.append('difficulty', difficulty);
       formData.append('totalQuestions', totalSoal.toString());
-      formData.append('multipleChoiceCount', quizType === 'pilihan_ganda' ? totalSoal.toString() : multipleChoiceCount.toString());
-      formData.append('shortAnswerCount', quizType === 'isian' ? totalSoal.toString() : shortAnswerCount.toString());
+      formData.append(
+        'multipleChoiceCount',
+        quizType === 'pilihan_ganda' ? totalSoal.toString() : quizType === 'isian' ? '0' : multipleChoiceCount.toString(),
+      );
+      formData.append(
+        'shortAnswerCount',
+        quizType === 'isian' ? totalSoal.toString() : quizType === 'pilihan_ganda' ? '0' : shortAnswerCount.toString(),
+      );
       formData.append('duration', duration.toString());
       formData.append('kkm', kkm.toString());
 
@@ -134,7 +140,7 @@ export default function GenerateQuizPage() {
   const loadingStepsText = ['', 'Menyiapkan dokumen...', 'Membaca konten PDF...', 'Menganalisis materi...', 'Menyusun pertanyaan & kunci jawaban...', 'Finalisasi kuis...'];
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="mx-auto max-w-6xl px-0 sm:px-0">
       {/* Header */}
       <div className="mb-8">
         <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">GENERATE QUIZ</p>
@@ -142,7 +148,7 @@ export default function GenerateQuizPage() {
       </div>
 
       {/* Main Content - Two Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Card 1: Sumber Materi */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           {/* Section Header */}

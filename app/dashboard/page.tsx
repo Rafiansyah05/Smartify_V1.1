@@ -11,23 +11,24 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  useEffect(() => {
-    async function fetchQuizzes() {
-      try {
-        const res = await fetch('/api/dashboard');
-        if (res.ok) {
-          const data = await res.json();
-          setQuizzes(data.quizzes || []);
-        } else if (res.status === 401) {
-          // Redirect to login if unauthorized
-          window.location.href = '/auth/login';
-        }
-      } catch (err) {
-        console.error('Fetch quizzes error:', err);
-      } finally {
-        setLoading(false);
+  const fetchQuizzes = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    try {
+      const res = await fetch('/api/dashboard');
+      if (res.ok) {
+        const data = await res.json();
+        setQuizzes(data.quizzes || []);
+      } else if (res.status === 401) {
+        window.location.href = '/auth/login';
       }
+    } catch (err) {
+      console.error('Fetch quizzes error:', err);
+    } finally {
+      if (!opts?.silent) setLoading(false);
     }
+  };
+
+  useEffect(() => {
     fetchQuizzes();
   }, []);
 
@@ -49,37 +50,43 @@ export default function DashboardPage() {
       {/* Page Header */}
       <div className="mb-8">
         <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">DASHBOARD</p>
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <h1 className="text-2xl font-bold text-gray-900">Koleksi Kuis Saya</h1>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <h1 className="text-xl font-bold text-card-foreground sm:text-2xl">Koleksi Kuis Saya</h1>
 
-          <div className="flex items-center gap-3">
-            {/* Search */}
-            <div className="relative flex-1 lg:w-80">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+            <div className="relative w-full sm:max-w-xs lg:w-80">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                <Search className="h-5 w-5 text-muted-foreground" />
+              </div>
               <input
                 type="text"
-                placeholder="Cari sesuatu..."
+                placeholder="Cari kuis..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border-0 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="w-full rounded-xl border-0 bg-input py-3 pl-12 pr-4 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
 
-            {/* View Toggle */}
-            <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1">
+            <div className="flex items-center rounded-xl border border-border bg-card p-1">
               <button
+                type="button"
                 onClick={() => setViewMode('grid')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors sm:flex-initial sm:px-4 ${
+                  viewMode === 'grid' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-card-foreground'
+                }`}
               >
-                <LayoutGrid className="w-4 h-4" />
-                <span>Grid</span>
+                <LayoutGrid className="h-4 w-4" />
+                <span className="hidden sm:inline">Grid</span>
               </button>
               <button
+                type="button"
                 onClick={() => setViewMode('list')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${viewMode === 'list' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors sm:flex-initial sm:px-4 ${
+                  viewMode === 'list' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-card-foreground'
+                }`}
               >
-                <List className="w-4 h-4" />
-                <span>List</span>
+                <List className="h-4 w-4" />
+                <span className="hidden sm:inline">List</span>
               </button>
             </div>
           </div>
@@ -92,17 +99,17 @@ export default function DashboardPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5' : 'flex flex-col gap-4'}>
+        <div className={viewMode === 'grid' ? 'grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3' : 'flex flex-col gap-4'}>
           {filteredQuizzes.map((quiz) => (
             <QuizCard
               key={quiz.kuis_id}
-              id={quiz.kuis_id.toString()}
+              id={quiz.kuis_id}
               title={quiz.judul}
               totalSoal={quiz.total_soal}
               tanggal={formatDate(quiz.created_at)}
               copyright={quiz.kelas || 'Smartify Quiz'}
               status={quiz.status || 'draft'}
-              jumlahPeserta={0}
+              onDeleted={() => fetchQuizzes({ silent: true })}
             />
           ))}
         </div>
@@ -116,7 +123,10 @@ export default function DashboardPage() {
           </div>
           <h3 className="text-lg font-medium text-gray-800">Belum ada kuis</h3>
           <p className="text-gray-500 mt-1 mb-4">Mulai buat kuis pertama Anda</p>
-          <Link href="/generate" className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-medium transition-colors">
+          <Link
+            href="/generate"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
             + Buat Kuis Baru
           </Link>
         </div>

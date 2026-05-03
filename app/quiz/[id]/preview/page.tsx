@@ -160,7 +160,15 @@ export default function PreviewQuizPage() {
               <div key={q.soal_id} className="pb-8 border-b border-gray-100 last:border-b-0 last:pb-0">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <h3 className="font-bold text-gray-800 text-lg">Soal {index + 1}.</h3>
-                  <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full whitespace-nowrap">{q.tipe_soal === 'pilihan_ganda' ? 'Pilihan Ganda' : 'Uraian'}</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full whitespace-nowrap">
+                    {q.tipe_soal === 'pilihan_ganda'
+                      ? 'Pilihan Ganda'
+                      : q.tipe_soal === 'isian_singkat'
+                        ? 'Isian Singkat'
+                        : quiz?.jenis_soal === 'campuran'
+                          ? 'Isian Singkat'
+                          : 'Uraian'}
+                  </span>
                 </div>
                 <div className="text-gray-700 mb-6 leading-relaxed">{formatText(q.teks_soal)}</div>
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase/server';
+import { parseKunciJawaban } from '@/lib/quiz/kunci-jawaban';
 
 // PERBAIKAN: Fungsi getParams harus ASYNC untuk mengambil params di Next.js 15
 async function getParams(context: any) {
@@ -93,6 +94,18 @@ export async function GET(request: NextRequest, context: any) {
       const studentAnswer = answersMap.get(q.soal_id);
       const correctOption = q.pilihan_jawaban?.find((p: any) => p.is_benar);
       const keyAnswer = q.kunci_jawaban;
+      const rawKunci = keyAnswer?.jawaban_text || '';
+      const parsed = parseKunciJawaban(rawKunci);
+
+      let jawabanBenar: string;
+      let penjelasan: string | null;
+      if (q.tipe_soal === 'pilihan_ganda') {
+        jawabanBenar = correctOption?.teks_pilihan || '';
+        penjelasan = rawKunci || null;
+      } else {
+        jawabanBenar = parsed.kunci || rawKunci;
+        penjelasan = parsed.penjelasan;
+      }
 
       return {
         soal_id: q.soal_id,
@@ -101,8 +114,8 @@ export async function GET(request: NextRequest, context: any) {
         urutan: q.urutan,
         poin_maksimal: q.poin || 10,
         pilihan: q.pilihan_jawaban || [],
-        jawaban_benar: q.tipe_soal === 'pilihan_ganda' ? correctOption?.teks_pilihan : keyAnswer?.jawaban_text || '',
-        penjelasan: keyAnswer?.jawaban_text || null,
+        jawaban_benar: jawabanBenar,
+        penjelasan,
         jawaban_siswa: studentAnswer?.jawaban || null,
         is_benar: studentAnswer?.is_benar ?? false,
         poin_dapat: studentAnswer?.poin_dapat ?? 0,

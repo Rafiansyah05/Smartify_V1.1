@@ -3,53 +3,67 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Sparkles, X } from 'lucide-react';
 
 const menuItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Generate Quiz', href: '/generate', icon: Sparkles },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
 
-  return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-white border-r border-gray-100">
-      <div className="flex flex-col h-full">
-        {/* Logo */}
-        <div className="flex items-center h-16 px-6">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <Image src="/images/logo3.png" alt="Smartify Logo" width={120} height={40} priority />
-          </Link>
-        </div>
+  const handleNav = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      onClose?.();
+    }
+  };
 
-        {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          {menuItems.map((item) => {
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
-            const Icon = item.icon;
-            
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
-                  isActive
-                    ? 'text-primary font-medium'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {/* Active indicator line */}
-                {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
-                )}
-                <Icon className={`w-5 h-5 ${isActive ? 'text-primary' : 'text-gray-500'}`} />
-                <span className="text-sm">{item.name}</span>
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
-    </aside>
+  return (
+    <>
+      <aside
+        className={`fixed left-0 top-0 z-50 h-screen w-64 max-w-[85vw] border-r border-border bg-white transition-transform duration-300 ease-out md:translate-x-0 ${
+          open ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex h-full flex-col">
+          <div className="flex h-16 items-center justify-between px-4 md:px-6">
+            <Link href="/dashboard" className="flex items-center gap-2" onClick={handleNav}>
+              <Image src="/images/logo3.png" alt="Smartify Logo" width={120} height={40} priority className="h-8 w-auto" />
+            </Link>
+            <button type="button" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-input md:hidden" aria-label="Tutup menu">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4 md:px-4 md:py-6">
+            {menuItems.map((item) => {
+              const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={handleNav}
+                  className={`relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200 ${
+                    isActive ? 'font-medium text-primary' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {isActive && <div className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-primary" />}
+                  <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                  <span>{item.name}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+      </aside>
+    </>
   );
 }

@@ -7,7 +7,7 @@ import { Clock, AlertTriangle } from 'lucide-react';
 interface Question {
   soal_id: number;
   teks_soal: string;
-  tipe_soal: 'pilihan_ganda' | 'uraian';
+  tipe_soal: 'pilihan_ganda' | 'isian_singkat' | 'uraian';
   pilihan?: Array<{
     pilihan_id: number;
     teks_pilihan: string;
@@ -246,6 +246,7 @@ export default function TakeQuizPage() {
             ...data.result,
             participantName: participant.nama_siswa,
             pesertaId: participant.peserta_id,
+            ...(typeof data.aiGradingFallbackNote === 'string' ? { aiGradingFallbackNote: data.aiGradingFallbackNote } : {}),
           }),
         );
 
@@ -437,7 +438,13 @@ export default function TakeQuizPage() {
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-bold text-gray-800">Soal {currentQuestionIndex + 1}.</h2>
-                    <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full">{currentQuestion.tipe_soal === 'pilihan_ganda' ? 'Pilihan Ganda' : 'Uraian'}</span>
+                    <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full">
+                      {currentQuestion.tipe_soal === 'pilihan_ganda'
+                        ? 'Pilihan Ganda'
+                        : currentQuestion.tipe_soal === 'isian_singkat'
+                          ? 'Isian Singkat'
+                          : 'Uraian'}
+                    </span>
                   </div>
                   <div className="text-gray-700 leading-relaxed">{formatText(currentQuestion.teks_soal)}</div>
                 </div>
@@ -462,13 +469,17 @@ export default function TakeQuizPage() {
                   </div>
                 )}
 
-                {currentQuestion.tipe_soal === 'uraian' && (
+                {(currentQuestion.tipe_soal === 'uraian' || currentQuestion.tipe_soal === 'isian_singkat') && (
                   <div className="mb-8">
                     <textarea
                       value={answers[currentQuestion.soal_id] || ''}
                       onChange={(e) => handleAnswerSelect(e.target.value)}
-                      rows={8}
-                      placeholder="Tulis jawaban Anda di sini dengan lengkap dan jelas..."
+                      rows={currentQuestion.tipe_soal === 'isian_singkat' ? 4 : 8}
+                      placeholder={
+                        currentQuestion.tipe_soal === 'isian_singkat'
+                          ? 'Tulis jawaban singkat Anda...'
+                          : 'Tulis jawaban Anda di sini dengan lengkap dan jelas...'
+                      }
                       className="w-full rounded-xl border-2 border-gray-100 bg-gray-50 p-4 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent resize-none"
                     />
                     <p className="text-xs text-gray-400 mt-2">{(answers[currentQuestion.soal_id] || '').length} karakter</p>
@@ -483,13 +494,24 @@ export default function TakeQuizPage() {
                   >
                     Sebelumnya
                   </button>
-                  <button
-                    onClick={handleNext}
-                    disabled={currentQuestionIndex === totalQuestions - 1}
-                    className="px-8 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Selanjutnya
-                  </button>
+                  {currentQuestionIndex === totalQuestions - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmSubmit(true)}
+                      disabled={submitting}
+                      className="px-8 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Kumpulkan
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleNext}
+                      className="px-8 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Selanjutnya
+                    </button>
+                  )}
                 </div>
               </>
             ) : (
