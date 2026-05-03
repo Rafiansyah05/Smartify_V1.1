@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Clock, AlertTriangle } from 'lucide-react';
+import { Clock, AlertTriangle, ShieldAlert } from 'lucide-react';
 
 interface Question {
   soal_id: number;
@@ -37,6 +37,17 @@ export default function TakeQuizPage() {
 
   const hasSubmittedRef = useRef(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  /** Anti-cheat: meninggalkan tab / kehilangan fokus jendela sebelum submit */
+  const tabViolationCountRef = useRef(0);
+  const leaveEpisodeActiveRef = useRef(false);
+  const quizAntiCheatReadyRef = useRef(false);
+  const pendingTabWarningStrikeRef = useRef<0 | 1 | 2>(0);
+  const blurDelayTimerRef = useRef<number | null>(null);
+  const handleSubmitRef = useRef<(opts?: { auto?: boolean; cheating?: boolean }) => Promise<void>>(async () => {});
+
+  const [tabLeaveWarningModal, setTabLeaveWarningModal] = useState<{ strike: 1 | 2 } | null>(null);
+  const [autoSubmitReason, setAutoSubmitReason] = useState<'time' | 'cheating' | null>(null);
 
   const currentQuestion = shuffledQuestions[currentQuestionIndex];
   const totalQuestions = shuffledQuestions.length;
@@ -196,7 +207,11 @@ export default function TakeQuizPage() {
 
   // Submit quiz to server
   const handleSubmit = useCallback(
-    async (isAutoSubmit = false) => {
+    async (opts?: { auto?: boolean; cheating?: boolean }) => {
+      const auto = opts?.auto === true;
+      const cheating = opts?.cheating === true;
+      const isAutoSubmit = auto || cheating;
+
       if (hasSubmittedRef.current) return;
 
       // Validasi pesertaId
@@ -210,6 +225,8 @@ export default function TakeQuizPage() {
 
       hasSubmittedRef.current = true;
       setSubmitting(true);
+      if (cheating) setAutoSubmitReason('cheating');
+      else if (auto) setAutoSubmitReason('time');
       if (isAutoSubmit) setAutoSubmitting(true);
 
       try {
@@ -258,10 +275,13 @@ export default function TakeQuizPage() {
         setError(err.message || 'Gagal mengirim jawaban');
         setSubmitting(false);
         setAutoSubmitting(false);
+        setAutoSubmitReason(null);
       }
     },
     [participant, answers, id, qrToken, router, getParticipantStorageKey, getWaitingRoomStorageKey],
   );
+
+  handleSubmitRef.current = handleSubmit;
 
   // Timer countdown
   useEffect(() => {
@@ -271,7 +291,7 @@ export default function TakeQuizPage() {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
           if (!hasSubmittedRef.current) {
-            handleSubmit(true);
+            handleSubmit({ auto: true });
           }
           return 0;
         }
@@ -289,6 +309,93 @@ export default function TakeQuizPage() {
     }
     fetchQuiz();
   }, [id, qrToken]);
+
+  // Siapkan anti-cheat singkat setelah soal aktif (hindari alarm saat mount / reload)
+  useEffect(() => {
+    if (loading || error || !quiz) {
+      quizAntiCheatReadyRef.current = false;
+      return;
+    }
+    quizAntiCheatReadyRef.current = false;
+    const t = window.setTimeout(() => {
+      quizAntiCheatReadyRef.current = true;
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [loading, error, quiz]);
+
+  const flushPendingTabWarning = useCallback(() => {
+    const strike = pendingTabWarningStrikeRef.current;
+    if (strike === 1 || strike === 2) {
+      pendingTabWarningStrikeRef.current = 0;
+      setTabLeaveWarningModal({ strike });
+    }
+  }, []);
+
+  const recordTabLeaveViolation = useCallback(() => {
+    if (!quizAntiCheatReadyRef.current || hasSubmittedRef.current) return;
+
+    if (leaveEpisodeActiveRef.current) return;
+    leaveEpisodeActiveRef.current = true;
+    window.setTimeout(() => {
+      leaveEpisodeActiveRef.current = false;
+    }, 750);
+
+    tabViolationCountRef.current += 1;
+    const strike = tabViolationCountRef.current;
+
+    if (strike >= 3) {
+      pendingTabWarningStrikeRef.current = 0;
+      void handleSubmitRef.current({ auto: true, cheating: true });
+      return;
+    }
+    pendingTabWarningStrikeRef.current = strike as 1 | 2;
+  }, []);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        recordTabLeaveViolation();
+      } else if (document.visibilityState === 'visible') {
+        flushPendingTabWarning();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [recordTabLeaveViolation, flushPendingTabWarning]);
+
+  // Cadangan: jendela lain di-focus (mis. split layar / Alt+Tab tanpa menyembunyikan tab)
+  useEffect(() => {
+    const clearBlurTimer = () => {
+      if (blurDelayTimerRef.current) {
+        window.clearTimeout(blurDelayTimerRef.current);
+        blurDelayTimerRef.current = null;
+      }
+    };
+
+    const onBlur = () => {
+      clearBlurTimer();
+      blurDelayTimerRef.current = window.setTimeout(() => {
+        blurDelayTimerRef.current = null;
+        if (!quizAntiCheatReadyRef.current || hasSubmittedRef.current) return;
+        if (document.visibilityState === 'hidden') return;
+        if (typeof document.hasFocus === 'function' && document.hasFocus()) return;
+        recordTabLeaveViolation();
+      }, 240);
+    };
+
+    const onFocus = () => {
+      clearBlurTimer();
+      flushPendingTabWarning();
+    };
+
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearBlurTimer();
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [recordTabLeaveViolation, flushPendingTabWarning]);
 
   // Warn before leaving page
   useEffect(() => {
@@ -390,15 +497,20 @@ export default function TakeQuizPage() {
   }
 
   if (autoSubmitting) {
+    const isCheating = autoSubmitReason === 'cheating';
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-100 p-8 text-center shadow-sm">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
-            <AlertTriangle className="w-8 h-8 text-amber-500" />
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
+          <div className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${isCheating ? 'bg-red-100' : 'bg-amber-100'}`}>
+            {isCheating ? <ShieldAlert className="h-8 w-8 text-red-600" /> : <AlertTriangle className="h-8 w-8 text-amber-500" />}
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">Waktu Habis!</h1>
-          <p className="text-sm text-gray-500 mb-6">Jawaban Anda sedang dikumpulkan secara otomatis...</p>
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto"></div>
+          <h1 className="mb-4 text-2xl font-bold text-gray-800">{isCheating ? 'Kecurangan terdeteksi' : 'Waktu Habis!'}</h1>
+          <p className="mb-6 text-sm text-gray-500">
+            {isCheating
+              ? 'Anda meninggalkan halaman kuis lebih dari yang diperbolehkan. Jawaban dikumpulkan otomatis dan dinilai sesuai jawaban yang sudah ada.'
+              : 'Jawaban Anda sedang dikumpulkan secara otomatis...'}
+          </p>
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-cyan-400"></div>
         </div>
       </div>
     );
@@ -574,6 +686,28 @@ export default function TakeQuizPage() {
         </div>
       </div>
 
+      {tabLeaveWarningModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-8 shadow-lg">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100">
+              <AlertTriangle className="h-7 w-7 text-amber-600" />
+            </div>
+            <h2 className="mb-2 text-center text-xl font-bold text-gray-800">Jangan tinggalkan halaman kuis</h2>
+            <p className="mb-4 text-center text-sm text-gray-600">
+              Anda terdeteksi membuka tab lain atau meninggalkan halaman ini sebelum mengumpulkan jawaban. Tetap fokus pada jendela kuis sampai selesai.
+            </p>
+            <p className="mb-6 text-center text-sm font-semibold text-red-600">Peringatan {tabLeaveWarningModal.strike} dari 3</p>
+            <button
+              type="button"
+              onClick={() => setTabLeaveWarningModal(null)}
+              className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Saya mengerti
+            </button>
+          </div>
+        </div>
+      )}
+
       {showConfirmSubmit && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-8 max-w-md w-full">
@@ -595,7 +729,7 @@ export default function TakeQuizPage() {
               <button onClick={() => setShowConfirmSubmit(false)} disabled={submitting} className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-full transition-colors disabled:opacity-50">
                 Batal
               </button>
-              <button onClick={() => handleSubmit(false)} disabled={submitting} className="flex-1 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50">
+              <button onClick={() => handleSubmit()} disabled={submitting} className="flex-1 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50">
                 {submitting ? 'Mengumpulkan...' : 'Ya, Kumpulkan'}
               </button>
             </div>

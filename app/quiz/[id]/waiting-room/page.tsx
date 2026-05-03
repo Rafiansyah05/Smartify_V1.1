@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { MoreVertical, RefreshCw, Users, User, UserMinus } from 'lucide-react';
+import { MoreVertical, RefreshCw, Users, User, UserMinus, Download, Link2 } from 'lucide-react';
 import { Navbar } from '@/components/dashboard/Navbar';
 import { supabase } from '@/lib/supabase/client';
 
@@ -355,10 +355,55 @@ export default function WaitingRoomPage() {
     }
   };
 
-  const openQrFull = () => {
+  const handleDownloadQrImage = useCallback(async () => {
+    if (!qrUrl || typeof window === 'undefined') return;
+    const src = `${QR_SERVICE}?size=512x512&data=${encodeURIComponent(qrUrl)}`;
+    try {
+      const img = document.createElement('img');
+      img.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('load'));
+        img.src = src;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('ctx');
+      ctx.drawImage(img, 0, 0);
+      await new Promise<void>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('blob'));
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `smartify-qr-kuis-${id}.png`;
+          a.rel = 'noopener';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          resolve();
+        }, 'image/png');
+      });
+    } catch {
+      window.open(src, '_blank', 'noopener,noreferrer');
+    }
+  }, [qrUrl, id]);
+
+  const handleCopyJoinLink = useCallback(async () => {
     if (!qrUrl) return;
-    window.open(qrUrl, '_blank');
-  };
+    try {
+      await navigator.clipboard.writeText(qrUrl);
+      window.alert('Link berhasil disalin. Bagikan ke siswa—buka link akan menuju halaman isi nama lengkap.');
+    } catch {
+      window.prompt('Salin link ini (Ctrl+C):', qrUrl);
+    }
+  }, [qrUrl]);
 
   const handleConfirmKick = async () => {
     if (!kickConfirm || !id) return;
@@ -572,12 +617,29 @@ export default function WaitingRoomPage() {
                   ) : (
                     <div className="h-56 flex items-center justify-center text-sm text-gray-400 bg-gray-100 rounded-2xl">QR Code belum tersedia</div>
                   )}
-                  <div className="mt-6 border-t border-gray-200 pt-6">
-                    <h3 className="font-semibold text-gray-800">Scan to Join</h3>
-                    <p className="text-sm text-gray-500 mt-1">Buka kamera ponsel untuk bergabung</p>
-                    <button onClick={openQrFull} className="mt-4 w-full px-4 py-2.5 bg-cyan-400 hover:bg-cyan-500 text-white rounded-xl text-sm font-medium transition-colors shadow-sm">
-                      Tampilkan QR Code
-                    </button>
+                  <div className="mt-6 space-y-3 border-t border-gray-200 pt-6">
+                    <h3 className="font-semibold text-gray-800">Bagikan ke siswa</h3>
+                    <p className="text-sm text-gray-500">Unduh gambar QR atau salin link—sama seperti yang di dalam QR—agar siswa membuka halaman nama lengkap.</p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadQrImage()}
+                        disabled={!qrUrl}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-1"
+                      >
+                        <Download className="h-4 w-4 shrink-0" />
+                        Download QR
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyJoinLink()}
+                        disabled={!qrUrl}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-card-foreground shadow-sm transition-colors hover:bg-input disabled:cursor-not-allowed disabled:opacity-50 sm:flex-1"
+                      >
+                        <Link2 className="h-4 w-4 shrink-0" />
+                        Salin link
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

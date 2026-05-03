@@ -119,84 +119,98 @@ export default function QuizResultPage() {
   const isPassed = userScore >= (quiz?.kkm || 75);
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div>
-            <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider mb-1">SELESAI!!!</p>
-            <h1 className="text-xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
+      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
+          <div className="min-w-0">
+            <p className="mb-1 text-xs font-medium uppercase tracking-wider text-emerald-500">SELESAI!!!</p>
+            <h1 className="break-words text-lg font-bold text-gray-800 sm:text-xl">{quiz?.judul || 'Ulangan Harian'}</h1>
           </div>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 mt-8">
+      <div className="mx-auto mt-6 max-w-4xl px-4 pb-28 sm:mt-8 sm:px-6 sm:pb-8">
         {/* Score Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 mb-8">
-          <div className="text-center mb-6">
-            <h2 className="text-xs uppercase tracking-wider text-gray-400 mb-2">YOUR FINAL SCORE</h2>
+        <div className="mb-8 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-8">
+          <div className="mb-6 text-center">
+            <h2 className="mb-2 text-xs uppercase tracking-wider text-gray-400">YOUR FINAL SCORE</h2>
 
-            <div className="inline-flex flex-col items-center">
-              <div className="text-7xl font-bold text-cyan-400">{userScore}</div>
-              <span className="text-gray-400 text-sm">out of 100</span>
+            <div className="inline-flex flex-col items-center px-2">
+              <div className="text-5xl font-bold tabular-nums leading-none text-cyan-400 sm:text-6xl md:text-7xl">{userScore}</div>
+              <span className="mt-2 text-sm text-gray-400">out of 100</span>
             </div>
 
-            <div className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full ${isPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-              {isPassed ? <ThumbsUp className="w-4 h-4" /> : <ThumbsDown className="w-4 h-4" />}
-              <span className="font-medium text-sm">{isPassed ? 'LULUS' : 'TIDAK LULUS'}</span>
-              {!isPassed && <span className="text-xs ml-1">(KKM: {quiz?.kkm || 75})</span>}
+            <div
+              className={`mt-4 inline-flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 py-2 rounded-full ${isPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+            >
+              {isPassed ? <ThumbsUp className="h-4 w-4 shrink-0" /> : <ThumbsDown className="h-4 w-4 shrink-0" />}
+              <span className="text-sm font-medium">{isPassed ? 'LULUS' : 'TIDAK LULUS'}</span>
+              {!isPassed && <span className="text-xs">(KKM: {quiz?.kkm || 75})</span>}
             </div>
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-emerald-50 rounded-xl p-4 text-center">
-              <div className="flex items-center justify-center gap-2 mb-1">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                <span className="text-emerald-600 font-medium">Benar</span>
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+            <div className="rounded-xl bg-emerald-50 p-4 text-center">
+              <div className="mb-1 flex items-center justify-center gap-2">
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+                <span className="font-medium text-emerald-600">Benar</span>
               </div>
-              <span className="text-2xl font-bold text-emerald-600">{correctCount}</span>
-              <span className="text-xs text-emerald-500 ml-1">soal</span>
+              <span className="text-2xl font-bold tabular-nums text-emerald-600">{correctCount}</span>
+              <span className="ml-1 text-xs text-emerald-500">soal</span>
             </div>
-            <div className="bg-red-50 rounded-xl p-4 text-center">
-              <div className="flex items-center justify-center gap-2 mb-1">
-                <XCircle className="w-5 h-5 text-red-500" />
-                <span className="text-red-600 font-medium">Salah</span>
+            <div className="rounded-xl bg-red-50 p-4 text-center">
+              <div className="mb-1 flex items-center justify-center gap-2">
+                <XCircle className="h-5 w-5 shrink-0 text-red-500" />
+                <span className="font-medium text-red-600">Salah</span>
               </div>
-              <span className="text-2xl font-bold text-red-600">{incorrectCount}</span>
-              <span className="text-xs text-red-500 ml-1">soal</span>
+              <span className="text-2xl font-bold tabular-nums text-red-600">{incorrectCount}</span>
+              <span className="ml-1 text-xs text-red-500">soal</span>
             </div>
           </div>
 
           {/* Additional Info */}
-          <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2 text-gray-600">
-                <Clock className="w-4 h-4" />
+          <div className="grid grid-cols-1 gap-3 rounded-xl bg-gray-50 p-4 sm:grid-cols-2 sm:gap-4">
+            <div className="flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex shrink-0 items-center gap-2 text-gray-600">
+                <Clock className="h-4 w-4 shrink-0" />
                 <span>Waktu Pengerjaan</span>
               </div>
-              <span className="font-medium text-gray-800">{formatDuration(participant?.durasi_pengerjaan)}</span>
+              <span className="break-words font-medium text-gray-800 sm:text-right">{formatDuration(participant?.durasi_pengerjaan)}</span>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2 text-gray-600">
-                <Award className="w-4 h-4" />
+            <div className="flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex shrink-0 items-center gap-2 text-gray-600">
+                <Award className="h-4 w-4 shrink-0" />
                 <span>Total Soal</span>
               </div>
-              <span className="font-medium text-gray-800">{totalQuestions} soal</span>
+              <span className="font-medium text-gray-800 sm:text-right">{totalQuestions} soal</span>
             </div>
           </div>
         </div>
 
+        {/* Desktop / tablet CTA */}
+        <div className="hidden sm:mb-8 sm:flex sm:justify-end">
+          <button
+            type="button"
+            onClick={handleViewAnswers}
+            className="flex items-center gap-2 rounded-full bg-cyan-400 px-6 py-3 font-semibold text-white shadow-lg shadow-cyan-400/30 transition-all hover:bg-cyan-500 hover:shadow-xl hover:shadow-cyan-400/40"
+          >
+            Lihat Jawaban & Pembahasan
+            <ArrowRight className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
-      {/* Fixed Bottom Action */}
-      <div className="fixed bottom-6 right-6 z-30">
+      {/* Mobile-safe bottom action */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-100 bg-white/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-white/80 sm:hidden">
         <button
+          type="button"
           onClick={handleViewAnswers}
-          className="flex items-center gap-2 px-6 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full shadow-lg shadow-cyan-400/30 transition-all hover:shadow-xl hover:shadow-cyan-400/40"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3.5 font-semibold text-white shadow-md transition-colors hover:bg-cyan-500"
         >
           Lihat Jawaban & Pembahasan
-          <ArrowRight className="w-5 h-5" />
+          <ArrowRight className="h-5 w-5 shrink-0" />
         </button>
       </div>
     </div>
