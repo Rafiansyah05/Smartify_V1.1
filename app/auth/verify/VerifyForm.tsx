@@ -28,7 +28,7 @@ export default function VerifyForm({ emailParam }: VerifyFormProps) {
       const response = await fetch('/api/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ code, ...(email ? { email } : {}) }),
       });
 
       const data = await response.json();

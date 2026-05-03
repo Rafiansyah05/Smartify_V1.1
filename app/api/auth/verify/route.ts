@@ -5,11 +5,11 @@ export async function POST(request: NextRequest) {
   try {
     const { email, code } = await request.json();
 
-    if (!email || !code) {
-      return NextResponse.json({ error: 'Email dan kode verifikasi harus diisi' }, { status: 400 });
+    if (!code) {
+      return NextResponse.json({ error: 'Kode verifikasi harus diisi' }, { status: 400 });
     }
 
-    const { user } = await verifyAndCreateUser(email, code);
+    const { user } = await verifyAndCreateUser(code, email);
 
     return NextResponse.json({
       success: true,

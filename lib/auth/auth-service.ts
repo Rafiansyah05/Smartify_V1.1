@@ -73,14 +73,26 @@ export async function initiateRegistration(email: string, password: string, nama
 }
 
 // STEP 2: Verify Email and Create User
-export async function verifyAndCreateUser(email: string, code: string) {
+export async function verifyAndCreateUser(code: string, email?: string) {
   try {
-    // Cek kode verifikasi
-    const { data: verification, error: verifError } = await supabaseServer.from('email_verifications').select('*').eq('email', email).eq('code', code).eq('is_used', false).single();
+    // Cek kode verifikasi. Jika email tidak dikirim, cari berdasarkan kode aktif terbaru.
+    let verificationQuery = supabaseServer.from('email_verifications').select('*').eq('code', code).eq('is_used', false);
+    if (email) {
+      verificationQuery = verificationQuery.eq('email', email);
+    }
 
-    if (verifError || !verification) {
+    const { data: verificationRows, error: verifError } = await verificationQuery.order('created_at', { ascending: false }).limit(2);
+
+    if (verifError || !verificationRows || verificationRows.length === 0) {
       throw new Error('Kode verifikasi tidak valid');
     }
+
+    if (!email && verificationRows.length > 1) {
+      throw new Error('Ditemukan lebih dari satu data untuk kode ini. Silakan ulangi kirim kode verifikasi.');
+    }
+
+    const verification = verificationRows[0];
+    const verifiedEmail = verification.email;
 
     const now = new Date();
     let verifExpiresStr = verification.expires_at;
@@ -94,7 +106,7 @@ export async function verifyAndCreateUser(email: string, code: string) {
     }
 
     // Ambil data temporary
-    const { data: tempData, error: tempError } = await supabaseServer.from('temporary_registrations').select('*').eq('email', email).single();
+    const { data: tempData, error: tempError } = await supabaseServer.from('temporary_registrations').select('*').eq('email', verifiedEmail).single();
 
     if (tempError || !tempData) {
       throw new Error('Data registrasi tidak ditemukan. Silakan registrasi ulang.');
@@ -113,7 +125,7 @@ export async function verifyAndCreateUser(email: string, code: string) {
     const { data: newUser, error: userError } = await supabase
       .from('users')
       .insert({
-        email,
+        email: verifiedEmail,
         password_hash: tempData.password_hash,
         nama: tempData.nama,
         role: 'guru',
@@ -130,7 +142,7 @@ export async function verifyAndCreateUser(email: string, code: string) {
     await supabaseServer.from('email_verifications').update({ is_used: true }).eq('id', verification.id);
 
     // Hapus temporary data
-    await supabaseServer.from('temporary_registrations').delete().eq('email', email);
+    await supabaseServer.from('temporary_registrations').delete().eq('email', verifiedEmail);
 
     return { user: newUser };
   } catch (error: any) {
