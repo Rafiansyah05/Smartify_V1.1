@@ -217,16 +217,15 @@ export default function WaitingRoomPage() {
 
     const channel = supabase.channel(`waiting-room-${quizIdInt}`);
 
-    // Listen for quiz status changes
     channel.on(
       'postgres_changes',
       {
         event: 'UPDATE',
         schema: 'public',
         table: 'kuis',
+        filter: `kuis_id=eq.${quizIdInt}`,
       },
       (payload) => {
-        if (payload.new?.kuis_id !== quizIdInt) return;
         if (payload.new?.status === 'ongoing' && !isTeacher && !hasRedirectedRef.current) {
           console.log('🚀 Realtime: Quiz started! Redirecting...');
           redirectToTakeQuiz();
@@ -235,10 +234,22 @@ export default function WaitingRoomPage() {
       },
     );
 
-    // Listen for new participants
-    channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'peserta_kuis', filter: `kuis_id=eq.${quizIdInt}` }, () => fetchRoom(false));
+    channel.on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'peserta_kuis', filter: `kuis_id=eq.${quizIdInt}` },
+      () => fetchRoom(false),
+    );
 
+    channel.on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'peserta_kuis', filter: `kuis_id=eq.${quizIdInt}` },
+      () => fetchRoom(false),
+    );
+
+    // DELETE: tidak memakai filter server (PostgreSQL OLD sering hanya PK); filter manual jika ada kuis_id
     channel.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'peserta_kuis' }, (payload: any) => {
+      const oldKuis = payload.old?.kuis_id as number | undefined;
+      if (oldKuis != null && Number(oldKuis) !== quizIdInt) return;
       const oldId = payload.old?.peserta_id as number | undefined;
       if (oldId && oldId === studentPesertaIdRef.current && !isTeacher && !kickHandledRef.current) {
         kickHandledRef.current = true;
@@ -264,31 +275,13 @@ export default function WaitingRoomPage() {
 
     channelRef.current = channel;
 
-    // POLLING FALLBACK
-    const interval = setInterval(async () => {
-      try {
-        const url = new URL(`/api/quiz/${id}/waiting-room`, window.location.origin);
-        if (qrToken) url.searchParams.set('token', qrToken);
-        const res = await fetch(url.toString());
-        const data = await res.json();
-        
-        if (data.quiz?.status === 'ongoing' && !isTeacher && !hasRedirectedRef.current) {
-          console.log('🚀 Polling fallback: quiz started, redirecting...');
-          redirectToTakeQuiz();
-        }
-      } catch (err) {
-        console.error('Polling error:', err);
-      }
-    }, 3000); // cek setiap 3 detik
-
     return () => {
-      clearInterval(interval);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
-  }, [id, loading, isCheckingStorage, isTeacher, redirectToTakeQuiz, fetchRoom, qrToken]);
+  }, [id, loading, isCheckingStorage, isTeacher, redirectToTakeQuiz, fetchRoom, qrToken, getParticipantStorageKey, getWaitingRoomStorageKey]);
 
   const handleStartQuiz = async () => {
     if (!id) return;
@@ -602,11 +595,11 @@ export default function WaitingRoomPage() {
               </div>
             </div>
             {startError && <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{startError}</div>}
-            <div className="grid gap-8 lg:grid-cols-[minmax(0,320px)_1fr]">
-              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 sm:p-6">
+            <div className="grid gap-8 xl:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 sm:p-7">
                 <div className="text-center">
                   {qrUrl ? (
-                    <div className="relative mx-auto w-full max-w-[220px]">
+                    <div className="relative mx-auto w-full max-w-[280px] sm:max-w-[300px]">
                       <img crossOrigin="anonymous" src={`${QR_SERVICE}?size=280x280&data=${encodeURIComponent(qrUrl)}`} alt="QR Code Smartify" className="mx-auto rounded-2xl border border-gray-200 bg-white shadow-sm" />
                       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                         <div className="rounded-full bg-white p-1.5 shadow-sm">
@@ -617,15 +610,17 @@ export default function WaitingRoomPage() {
                   ) : (
                     <div className="h-56 flex items-center justify-center text-sm text-gray-400 bg-gray-100 rounded-2xl">QR Code belum tersedia</div>
                   )}
-                  <div className="mt-6 space-y-3 border-t border-gray-200 pt-6">
-                    <h3 className="font-semibold text-gray-800">Bagikan ke siswa</h3>
-                    <p className="text-sm text-gray-500">Unduh gambar QR atau salin link—sama seperti yang di dalam QR—agar siswa membuka halaman nama lengkap.</p>
-                    <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="mx-auto mt-6 max-w-md space-y-4 border-t border-gray-200 pt-6 lg:max-w-none">
+                    <h3 className="text-lg font-semibold text-gray-800">Bagikan ke siswa</h3>
+                    <p className="text-pretty px-1 text-sm leading-relaxed text-gray-500">
+                      Unduh gambar QR atau salin link—sama seperti yang di dalam QR—agar siswa membuka halaman nama lengkap.
+                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-stretch">
                       <button
                         type="button"
                         onClick={() => void handleDownloadQrImage()}
                         disabled={!qrUrl}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-1"
+                        className="inline-flex min-h-[48px] w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[160px] sm:flex-1"
                       >
                         <Download className="h-4 w-4 shrink-0" />
                         Download QR
@@ -634,7 +629,7 @@ export default function WaitingRoomPage() {
                         type="button"
                         onClick={() => void handleCopyJoinLink()}
                         disabled={!qrUrl}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-card-foreground shadow-sm transition-colors hover:bg-input disabled:cursor-not-allowed disabled:opacity-50 sm:flex-1"
+                        className="inline-flex min-h-[48px] w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 py-3 text-sm font-medium text-card-foreground shadow-sm transition-colors hover:bg-input disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[160px] sm:flex-1"
                       >
                         <Link2 className="h-4 w-4 shrink-0" />
                         Salin link

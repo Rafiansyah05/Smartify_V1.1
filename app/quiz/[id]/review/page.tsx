@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, XCircle, ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
+import { CheckCircle2, XCircle, ChevronLeft, ChevronRight, Lightbulb, ListChecks } from 'lucide-react';
 import { Navbar } from '@/components/dashboard/Navbar';
+import { MobileQuizDrawer } from '@/components/quiz/MobileQuizDrawer';
 
 interface QuestionResult {
   soal_id: number;
@@ -40,6 +41,7 @@ export default function QuizReviewPage() {
   const [error, setError] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'all' | 'incorrect'>('all');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const filteredQuestions = viewMode === 'incorrect' ? questionResults.filter((q) => !q.is_benar) : questionResults;
   const currentQuestion = filteredQuestions[currentIndex];
@@ -143,7 +145,10 @@ export default function QuizReviewPage() {
     if (currentIndex < filteredQuestions.length - 1) setCurrentIndex((prev) => prev + 1);
   };
 
-  const handleQuestionJump = (index: number) => setCurrentIndex(index);
+  const handleQuestionJump = (index: number) => {
+    setCurrentIndex(index);
+    setMobileNavOpen(false);
+  };
 
   if (loading) {
     return (
@@ -172,31 +177,123 @@ export default function QuizReviewPage() {
   const incorrectCount = statistics?.incorrectCount || 0;
   const totalQuestions = statistics?.totalQuestions || 0;
 
+  const reviewSidebarInner = filteredQuestions.length > 0 && (
+    <>
+      <h3 className="mb-4 text-sm font-semibold text-gray-800">Navigasi Soal</h3>
+
+      <div className="mb-6 grid grid-cols-6 gap-2">
+        {filteredQuestions.map((q, idx) => {
+          const isCurrent = idx === currentIndex;
+          const ui = getQuestionStatusUI(q);
+          return (
+            <button
+              key={q.soal_id}
+              type="button"
+              onClick={() => handleQuestionJump(idx)}
+              className={`h-9 w-9 rounded-lg text-sm font-medium transition-colors ${isCurrent ? 'bg-cyan-400 text-white' : `${ui.bg} ${ui.textCol}`}`}
+            >
+              {viewMode === 'all' ? q.urutan : idx + 1}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mb-6 rounded-xl bg-gray-50 p-4">
+        <p className="mb-3 text-xs font-medium text-gray-500">Keterangan:</p>
+        <div className="space-y-2 text-xs">
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded bg-cyan-400" />
+            <span className="text-gray-600">Soal saat ini</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded border border-emerald-200 bg-emerald-100" />
+            <span className="text-gray-600">Jawaban benar</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded border border-yellow-200 bg-yellow-100" />
+            <span className="text-gray-600">Sebagian benar</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded border border-red-200 bg-red-100" />
+            <span className="text-gray-600">Jawaban salah</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-cyan-50 p-4">
+        <p className="mb-3 text-xs font-semibold text-cyan-700">RINGKASAN NILAI</p>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-600">Total Soal:</span>
+            <span className="font-medium text-gray-800">{totalQuestions}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-emerald-600">Benar:</span>
+            <span className="font-medium text-emerald-600">{correctCount}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-red-600">Salah:</span>
+            <span className="font-medium text-red-600">{incorrectCount}</span>
+          </div>
+          <div className="mt-2 flex justify-between border-t border-cyan-200 pt-2">
+            <span className="font-semibold text-gray-800">Nilai Akhir:</span>
+            <span className="text-lg font-bold text-cyan-600">{userScore}</span>
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => router.push(`/quiz/${id}/result?token=${qrToken}&pesertaId=${pesertaId}`)}
+        className="mt-4 w-full rounded-lg border border-gray-200 bg-white py-2.5 font-medium text-gray-700 transition-colors hover:bg-gray-50"
+      >
+        ← Kembali ke Hasil
+      </button>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar fullWidth showBackButton backButtonText="Back to Dashboard" />
 
-      <main className="pt-24 pb-16">
-        <div className="max-w-7xl mx-auto px-6">
+      <MobileQuizDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} title="Navigasi soal">
+        {filteredQuestions.length > 0 ? reviewSidebarInner : null}
+      </MobileQuizDrawer>
+
+      <main className="overflow-x-hidden pb-16 pt-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
           {/* Header Info */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">EVALUASI KUIS</p>
-                <h1 className="text-xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
-                <p className="text-sm text-gray-500 mt-1">
-                  {participant?.nama_siswa} • Nilai: <span className="font-bold text-cyan-500">{userScore}</span>
+          <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wider text-gray-400">EVALUASI KUIS</p>
+                <h1 className="line-clamp-2 text-lg font-bold text-gray-800 sm:text-xl">{quiz?.judul || 'Ulangan Harian'}</h1>
+                <p className="mt-1 truncate text-sm text-gray-500 sm:whitespace-normal">
+                  <span>{participant?.nama_siswa}</span> • Nilai:{' '}
+                  <span className="font-bold text-cyan-500">{userScore}</span>
                 </p>
               </div>
 
+              <div className="flex flex-wrap items-center gap-2">
+                {filteredQuestions.length > 0 && (
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-sm lg:hidden"
+                    onClick={() => setMobileNavOpen(true)}
+                  >
+                    <ListChecks className="h-4 w-4 text-cyan-500" aria-hidden />
+                    Soal ({currentIndex + 1}/{filteredQuestions.length})
+                  </button>
+                )}
+
               {/* View Mode Toggle */}
-              <div className="flex items-center gap-2 bg-gray-100 rounded-full p-1">
+              <div className="flex flex-1 items-center gap-1 rounded-full bg-gray-100 p-1 sm:flex-initial sm:gap-2">
                 <button
                   onClick={() => {
                     setViewMode('all');
                     setCurrentIndex(0);
                   }}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${viewMode === 'all' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  className={`rounded-full px-3 py-2 text-xs font-medium transition-colors sm:px-4 sm:text-sm ${viewMode === 'all' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   Semua Soal ({totalQuestions})
                 </button>
@@ -205,10 +302,11 @@ export default function QuizReviewPage() {
                     setViewMode('incorrect');
                     setCurrentIndex(0);
                   }}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${viewMode === 'incorrect' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  className={`rounded-full px-3 py-2 text-xs font-medium transition-colors sm:px-4 sm:text-sm ${viewMode === 'incorrect' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   Hanya Salah ({incorrectCount})
                 </button>
+              </div>
               </div>
             </div>
           </div>
@@ -223,13 +321,13 @@ export default function QuizReviewPage() {
               </button>
             </div>
           ) : (
-            <div className="grid lg:grid-cols-[1fr_320px] gap-8">
+            <div className="grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)] lg:gap-8">
               {/* Main Content - Question Review */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+              <div className="min-w-0 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
                 {currentQuestion && (
                   <>
                     {/* Question Header */}
-                    <div className="flex items-center justify-between mb-6">
+                    <div className="mb-6 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         <h2 className="text-lg font-bold text-gray-800">Soal {viewMode === 'all' ? currentQuestion.urutan : currentIndex + 1}</h2>
                         <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full">{typeBadge(currentQuestion.tipe_soal)}</span>
@@ -241,8 +339,8 @@ export default function QuizReviewPage() {
                     </div>
 
                     {/* Question Text */}
-                    <div className="mb-6 p-4 bg-gray-50 rounded-xl">
-                      <div className="text-gray-700 leading-relaxed">{formatText(currentQuestion.teks_soal)}</div>
+                    <div className="mb-6 rounded-xl bg-gray-50 p-4">
+                      <div className="break-words leading-relaxed text-gray-700">{formatText(currentQuestion.teks_soal)}</div>
                     </div>
 
                     {/* Pilihan Ganda Options */}
@@ -321,8 +419,8 @@ export default function QuizReviewPage() {
                     )}
 
                     {/* Navigation Buttons */}
-                    <div className="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-100">
-                      <span className="text-sm text-gray-500 mr-auto">
+                    <div className="mt-8 flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-6 sm:gap-4">
+                      <span className="mr-auto text-sm text-gray-500">
                         Soal {currentIndex + 1} dari {filteredQuestions.length}
                       </span>
                       <button
@@ -347,79 +445,9 @@ export default function QuizReviewPage() {
                 )}
               </div>
 
-              {/* Sidebar - Question Navigator */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-fit">
-                <h3 className="text-sm font-semibold text-gray-800 mb-4">Navigasi Soal</h3>
-
-                <div className="grid grid-cols-6 gap-2 mb-6">
-                  {filteredQuestions.map((q, idx) => {
-                    const isCurrent = idx === currentIndex;
-                    return (
-                      <button
-                        key={q.soal_id}
-                        onClick={() => handleQuestionJump(idx)}
-                        className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${isCurrent ? 'bg-cyan-400 text-white' : getQuestionStatusUI(q).bg + ' ' + getQuestionStatusUI(q).textCol.replace('text-', 'text-')}`}
-                      >
-                        {viewMode === 'all' ? q.urutan : idx + 1}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Legend */}
-                <div className="p-4 bg-gray-50 rounded-xl mb-6">
-                  <p className="text-xs font-medium text-gray-500 mb-3">Keterangan:</p>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded bg-cyan-400"></div>
-                      <span className="text-gray-600">Soal saat ini</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded bg-emerald-100 border border-emerald-200"></div>
-                      <span className="text-gray-600">Jawaban benar</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded bg-yellow-100 border border-yellow-200"></div>
-                      <span className="text-gray-600">Sebagian benar</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded bg-red-100 border border-red-200"></div>
-                      <span className="text-gray-600">Jawaban salah</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Summary Stats */}
-                <div className="p-4 bg-cyan-50 rounded-xl">
-                  <p className="text-xs font-semibold text-cyan-700 mb-3">RINGKASAN NILAI</p>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total Soal:</span>
-                      <span className="font-medium text-gray-800">{totalQuestions}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-emerald-600">Benar:</span>
-                      <span className="font-medium text-emerald-600">{correctCount}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-red-600">Salah:</span>
-                      <span className="font-medium text-red-600">{incorrectCount}</span>
-                    </div>
-                    <div className="pt-2 mt-2 border-t border-cyan-200 flex justify-between">
-                      <span className="font-semibold text-gray-800">Nilai Akhir:</span>
-                      <span className="font-bold text-cyan-600 text-lg">{userScore}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Back to Result Button */}
-                <button
-                  onClick={() => router.push(`/quiz/${id}/result?token=${qrToken}&pesertaId=${pesertaId}`)}
-                  className="w-full mt-4 py-2.5 bg-white border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  ← Kembali ke Hasil
-                </button>
-              </div>
+              <aside className="hidden h-fit min-w-[280px] lg:sticky lg:top-24 lg:block">
+                <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">{reviewSidebarInner}</div>
+              </aside>
             </div>
           )}
         </div>

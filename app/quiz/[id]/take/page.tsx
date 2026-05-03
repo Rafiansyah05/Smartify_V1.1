@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Clock, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Clock, AlertTriangle, ShieldAlert, ListChecks } from 'lucide-react';
+import { MobileQuizDrawer } from '@/components/quiz/MobileQuizDrawer';
 
 interface Question {
   soal_id: number;
@@ -34,6 +35,7 @@ export default function TakeQuizPage() {
   const [participant, setParticipant] = useState<any>(null);
   const [autoSubmitting, setAutoSubmitting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | ''>('');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const hasSubmittedRef = useRef(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -466,6 +468,7 @@ export default function TakeQuizPage() {
 
   const handleQuestionJump = (index: number) => {
     setCurrentQuestionIndex(index);
+    setMobileNavOpen(false);
   };
 
   const getTimeColor = () => {
@@ -516,39 +519,110 @@ export default function TakeQuizPage() {
     );
   }
 
+  const sidebarInner = (
+    <>
+      <div className="mb-4">
+        <p className="mb-1 text-xs uppercase tracking-wider text-gray-400">NAMA LENGKAP:</p>
+        <h3 className="text-lg font-bold text-gray-800">{participant?.nama_siswa || 'Siswa'}</h3>
+      </div>
+
+      <div className="mb-6">
+        <p className="mb-3 text-sm font-medium text-gray-700">Navigasi Soal</p>
+        <div className="grid grid-cols-6 gap-2">
+          {shuffledQuestions.map((q, index) => {
+            const isAnswered = answers[q.soal_id] !== undefined && answers[q.soal_id] !== '';
+            const isCurrent = index === currentQuestionIndex;
+
+            return (
+              <button
+                key={q.soal_id}
+                type="button"
+                onClick={() => handleQuestionJump(index)}
+                className={`h-9 w-9 rounded-lg text-sm font-medium transition-colors ${isCurrent ? 'bg-cyan-400 text-white' : isAnswered ? 'bg-cyan-100 text-cyan-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                {index + 1}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-xl bg-gray-50 p-4">
+        <p className="mb-3 text-xs font-medium text-gray-500">Keterangan:</p>
+        <div className="space-y-2 text-xs">
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded bg-cyan-400" />
+            <span className="text-gray-600">Soal saat ini</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded bg-cyan-100" />
+            <span className="text-gray-600">Sudah dijawab</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded bg-gray-100" />
+            <span className="text-gray-600">Belum dijawab</span>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" onClick={() => setShowConfirmSubmit(true)} disabled={submitting} className="w-full rounded-full bg-cyan-400 py-3 font-semibold text-white transition-colors hover:bg-cyan-500 disabled:opacity-50">
+        Kumpulkan
+      </button>
+
+      <div className="mt-4 text-center text-sm text-gray-500">
+        {answeredCount} dari {totalQuestions} soal terjawab
+      </div>
+    </>
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-8">
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-red-500 uppercase tracking-wider mb-1">SEMANGAT!!</p>
-              <h1 className="text-xl font-bold text-gray-800">{quiz?.judul || 'Ulangan Harian'}</h1>
+    <div className="min-h-screen bg-gray-50 pb-10">
+      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 sm:py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-red-500 sm:text-xs">SEMANGAT!!</p>
+              <h1 className="line-clamp-2 text-base font-bold text-gray-800 sm:text-lg lg:text-xl">{quiz?.judul || 'Ulangan Harian'}</h1>
             </div>
 
-            <div className="flex items-center gap-4">
-              {saveStatus && (
-                <span className={`text-xs ${saveStatus === 'saved' ? 'text-emerald-500' : saveStatus === 'saving' ? 'text-gray-400' : 'text-red-500'}`}>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:justify-end lg:gap-4">
+              {saveStatus ? (
+                <span
+                  className={`order-3 text-[10px] sm:order-none sm:text-xs ${saveStatus === 'saved' ? 'text-emerald-500' : saveStatus === 'saving' ? 'text-gray-400' : 'text-red-500'}`}
+                >
                   {saveStatus === 'saved' ? 'Tersimpan' : saveStatus === 'saving' ? 'Menyimpan...' : 'Gagal menyimpan'}
                 </span>
-              )}
+              ) : null}
 
-              <div className={`flex items-center gap-2 px-5 py-2.5 ${getTimeColor()} text-white rounded-full transition-colors`}>
-                <Clock className="w-5 h-5" />
-                <span className="font-bold">{formatTime(timeRemaining)}</span>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 lg:hidden"
+                onClick={() => setMobileNavOpen(true)}
+              >
+                <ListChecks className="h-4 w-4 text-cyan-500" aria-hidden />
+                Nav ({currentQuestionIndex + 1}/{totalQuestions || 1})
+              </button>
+
+              <div className={`flex items-center gap-2 rounded-full px-4 py-2 text-white transition-colors ${getTimeColor()} sm:px-5 sm:py-2.5`}>
+                <Clock className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+                <span className="font-bold tabular-nums">{formatTime(timeRemaining)}</span>
               </div>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 mt-8">
-        <div className="grid lg:grid-cols-[1fr_300px] gap-8">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+      <MobileQuizDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} title="Navigasi soal">
+        {sidebarInner}
+      </MobileQuizDrawer>
+
+      <div className="mx-auto mt-6 max-w-7xl overflow-x-hidden px-4 pb-8 sm:mt-8 sm:px-6">
+        <div className="grid gap-6 lg:grid-cols-[1fr_300px] lg:gap-8">
+          <div className="min-w-0 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             {currentQuestion ? (
               <>
-                <div className="mb-6">
-                  <div className="flex items-center justify-between mb-4">
+                <div className="mb-6 min-w-0">
+                  <div className="mb-4 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <h2 className="text-lg font-bold text-gray-800">Soal {currentQuestionIndex + 1}.</h2>
                     <span className="text-xs text-gray-400 uppercase tracking-wider px-3 py-1 bg-gray-100 rounded-full">
                       {currentQuestion.tipe_soal === 'pilihan_ganda'
@@ -558,7 +632,7 @@ export default function TakeQuizPage() {
                           : 'Uraian'}
                     </span>
                   </div>
-                  <div className="text-gray-700 leading-relaxed">{formatText(currentQuestion.teks_soal)}</div>
+                  <div className="break-words text-gray-700 leading-relaxed">{formatText(currentQuestion.teks_soal)}</div>
                 </div>
 
                 {currentQuestion.tipe_soal === 'pilihan_ganda' && currentQuestion.pilihan && (
@@ -571,10 +645,10 @@ export default function TakeQuizPage() {
                         <button
                           key={option.pilihan_id}
                           onClick={() => handleAnswerSelect(option.teks_pilihan)}
-                          className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${isSelected ? 'border-cyan-400 bg-cyan-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'}`}
+                          className={`flex w-full min-w-0 items-center gap-4 rounded-xl border-2 p-4 text-left transition-all ${isSelected ? 'border-cyan-400 bg-cyan-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'}`}
                         >
-                          <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold flex-shrink-0 ${isSelected ? 'bg-cyan-400 text-white' : 'bg-cyan-400 text-white'}`}>{label}</div>
-                          <span className="text-gray-700 font-medium">{option.teks_pilihan}</span>
+                          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${isSelected ? 'bg-cyan-400 text-white' : 'bg-cyan-400 text-white'}`}>{label}</div>
+                          <span className="min-w-0 break-words font-medium text-gray-700">{option.teks_pilihan}</span>
                         </button>
                       );
                     })}
@@ -598,11 +672,12 @@ export default function TakeQuizPage() {
                   </div>
                 )}
 
-                <div className="flex items-center justify-end gap-4 mt-8">
+                <div className="mt-8 flex flex-wrap items-center justify-end gap-2 sm:gap-4">
                   <button
+                    type="button"
                     onClick={handlePrevious}
                     disabled={currentQuestionIndex === 0}
-                    className="px-8 py-3 bg-red-400 hover:bg-red-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="min-h-[44px] rounded-full bg-red-400 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-8 sm:py-3"
                   >
                     Sebelumnya
                   </button>
@@ -611,7 +686,7 @@ export default function TakeQuizPage() {
                       type="button"
                       onClick={() => setShowConfirmSubmit(true)}
                       disabled={submitting}
-                      className="px-8 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="min-h-[44px] rounded-full bg-cyan-400 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-8 sm:py-3"
                     >
                       Kumpulkan
                     </button>
@@ -619,7 +694,7 @@ export default function TakeQuizPage() {
                     <button
                       type="button"
                       onClick={handleNext}
-                      className="px-8 py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="min-h-[44px] rounded-full bg-cyan-400 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-8 sm:py-3"
                     >
                       Selanjutnya
                     </button>
@@ -631,58 +706,9 @@ export default function TakeQuizPage() {
             )}
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <div className="mb-4">
-              <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">NAMA LENGKAP:</p>
-              <h3 className="text-lg font-bold text-gray-800">{participant?.nama_siswa || 'Siswa'}</h3>
-            </div>
-
-            <div className="mb-6">
-              <p className="text-sm font-medium text-gray-700 mb-3">Navigasi Soal</p>
-              <div className="grid grid-cols-6 gap-2">
-                {shuffledQuestions.map((q, index) => {
-                  const isAnswered = answers[q.soal_id] !== undefined && answers[q.soal_id] !== '';
-                  const isCurrent = index === currentQuestionIndex;
-
-                  return (
-                    <button
-                      key={q.soal_id}
-                      onClick={() => handleQuestionJump(index)}
-                      className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${isCurrent ? 'bg-cyan-400 text-white' : isAnswered ? 'bg-cyan-100 text-cyan-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                      {index + 1}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mb-6 p-4 bg-gray-50 rounded-xl">
-              <p className="text-xs font-medium text-gray-500 mb-3">Keterangan:</p>
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded bg-cyan-400"></div>
-                  <span className="text-gray-600">Soal saat ini</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded bg-cyan-100"></div>
-                  <span className="text-gray-600">Sudah dijawab</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded bg-gray-100"></div>
-                  <span className="text-gray-600">Belum dijawab</span>
-                </div>
-              </div>
-            </div>
-
-            <button onClick={() => setShowConfirmSubmit(true)} disabled={submitting} className="w-full py-3 bg-cyan-400 hover:bg-cyan-500 text-white font-semibold rounded-full transition-colors disabled:opacity-50">
-              Kumpulkan
-            </button>
-
-            <div className="mt-4 text-center text-sm text-gray-500">
-              {answeredCount} dari {totalQuestions} soal terjawab
-            </div>
-          </div>
+          <aside className="hidden h-fit min-w-[280px] lg:sticky lg:top-[5.25rem] lg:block">
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">{sidebarInner}</div>
+          </aside>
         </div>
       </div>
 

@@ -67,7 +67,7 @@ export default function ProgressPage() {
 
   const debouncedRefresh = useCallback(() => {
     if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
-    refreshDebounceRef.current = setTimeout(() => fetchProgress(false), 500);
+    refreshDebounceRef.current = setTimeout(() => fetchProgress(false), 900);
   }, [fetchProgress]);
 
   const { isConnected } = useQuizRealtime({
