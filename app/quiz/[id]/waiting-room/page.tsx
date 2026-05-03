@@ -34,6 +34,15 @@ export default function WaitingRoomPage() {
 
   const hasRedirectedRef = useRef(false);
   const channelRef = useRef<any>(null);
+  const isTeacherRef = useRef(false);
+  const redirectToTakeQuizRef = useRef<() => void>(() => {});
+  const fetchRoomRef = useRef<(showLoading?: boolean) => Promise<void>>(async (_showLoading = true) => {});
+  const getParticipantStorageKeyRef = useRef<() => string>(() => '');
+  const getWaitingRoomStorageKeyRef = useRef<() => string>(() => '');
+  const routerRef = useRef(router);
+  const qrTokenRef = useRef<string | null>(null);
+  const idRef = useRef<string | string[] | undefined>(undefined);
+
   const participantEverInListRef = useRef(false);
   const kickHandledRef = useRef(false);
   const studentPesertaIdRef = useRef<number | null>(null);
@@ -191,6 +200,15 @@ export default function WaitingRoomPage() {
     [id, qrToken],
   );
 
+  isTeacherRef.current = isTeacher;
+  redirectToTakeQuizRef.current = redirectToTakeQuiz;
+  fetchRoomRef.current = fetchRoom;
+  getParticipantStorageKeyRef.current = getParticipantStorageKey;
+  getWaitingRoomStorageKeyRef.current = getWaitingRoomStorageKey;
+  routerRef.current = router;
+  qrTokenRef.current = qrToken;
+  idRef.current = id;
+
   // === LOAD STORAGE ON MOUNT ===
   useEffect(() => {
     const saved = loadParticipantFromStorage();
@@ -203,11 +221,11 @@ export default function WaitingRoomPage() {
     if (!isCheckingStorage) fetchRoom();
   }, [isCheckingStorage, fetchRoom]);
 
-  // === SUPABASE REALTIME & POLLING ===
+  // === SUPABASE REALTIME (subscription stabil — pakai ref agar tidak resubscribe berulang) ===
   useEffect(() => {
     if (!id || loading || isCheckingStorage) return;
-    const quizIdInt = parseInt(id as string);
-    if (isNaN(quizIdInt)) return;
+    const quizIdInt = parseInt(id as string, 10);
+    if (Number.isNaN(quizIdInt)) return;
 
     console.log('🔌 Setting up waiting room realtime for quiz:', quizIdInt);
 
@@ -225,47 +243,58 @@ export default function WaitingRoomPage() {
         table: 'kuis',
         filter: `kuis_id=eq.${quizIdInt}`,
       },
-      (payload) => {
-        if (payload.new?.status === 'ongoing' && !isTeacher && !hasRedirectedRef.current) {
-          console.log('🚀 Realtime: Quiz started! Redirecting...');
-          redirectToTakeQuiz();
+      (payload: { new?: { status?: string } }) => {
+        if (payload.new?.status === 'ongoing' && !isTeacherRef.current && !hasRedirectedRef.current) {
+          console.log('🚀 Realtime DB: Quiz started, redirect siswa…');
+          redirectToTakeQuizRef.current();
         }
-        fetchRoom(false);
+        void fetchRoomRef.current(false);
       },
     );
+
+    // Langsung redirect semua siswa saat guru mem-broadcast Mulai Kuis (tanpa tunggu replikasi DB ke client)
+    channel.on('broadcast', { event: 'quiz_started' }, ({ payload }: { payload?: { quizId?: number } }) => {
+      const qid = payload?.quizId;
+      if (qid !== quizIdInt) return;
+      if (!isTeacherRef.current && !hasRedirectedRef.current) {
+        console.log('🚀 Broadcast: Quiz started, redirect siswa…');
+        redirectToTakeQuizRef.current();
+      }
+    });
 
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'peserta_kuis', filter: `kuis_id=eq.${quizIdInt}` },
-      () => fetchRoom(false),
+      () => void fetchRoomRef.current(false),
     );
 
     channel.on(
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'peserta_kuis', filter: `kuis_id=eq.${quizIdInt}` },
-      () => fetchRoom(false),
+      () => void fetchRoomRef.current(false),
     );
 
-    // DELETE: tidak memakai filter server (PostgreSQL OLD sering hanya PK); filter manual jika ada kuis_id
     channel.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'peserta_kuis' }, (payload: any) => {
       const oldKuis = payload.old?.kuis_id as number | undefined;
       if (oldKuis != null && Number(oldKuis) !== quizIdInt) return;
       const oldId = payload.old?.peserta_id as number | undefined;
-      if (oldId && oldId === studentPesertaIdRef.current && !isTeacher && !kickHandledRef.current) {
+      const sessId = idRef.current;
+      if (oldId && oldId === studentPesertaIdRef.current && !isTeacherRef.current && !kickHandledRef.current) {
         kickHandledRef.current = true;
         participantEverInListRef.current = false;
         try {
-          localStorage.removeItem(getParticipantStorageKey());
-          if (qrToken) localStorage.removeItem(getWaitingRoomStorageKey());
-          sessionStorage.removeItem(`quiz-session-${id}`);
+          localStorage.removeItem(getParticipantStorageKeyRef.current());
+          const tok = qrTokenRef.current;
+          if (tok) localStorage.removeItem(getWaitingRoomStorageKeyRef.current());
+          if (sessId) sessionStorage.removeItem(`quiz-session-${sessId}`);
         } catch {
           /* ignore */
         }
         window.alert('Anda telah dikeluarkan dari ruang tunggu oleh guru.');
-        router.push('/');
+        routerRef.current.push('/');
         return;
       }
-      fetchRoom(false);
+      void fetchRoomRef.current(false);
     });
 
     channel.subscribe((status) => {
@@ -281,10 +310,12 @@ export default function WaitingRoomPage() {
         channelRef.current = null;
       }
     };
-  }, [id, loading, isCheckingStorage, isTeacher, redirectToTakeQuiz, fetchRoom, qrToken, getParticipantStorageKey, getWaitingRoomStorageKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handler memakai ref; hindari churn subscription
+  }, [id, loading, isCheckingStorage]);
 
   const handleStartQuiz = async () => {
     if (!id) return;
+    const quizIdInt = parseInt(String(id), 10);
     setStartError('');
     setStarting(true);
     try {
@@ -294,6 +325,17 @@ export default function WaitingRoomPage() {
         setStartError(data.error || 'Gagal memulai kuis');
         return;
       }
+
+      try {
+        await channelRef.current?.send({
+          type: 'broadcast',
+          event: 'quiz_started',
+          payload: { quizId: quizIdInt },
+        });
+      } catch (e) {
+        console.warn('Broadcast quiz_started failed (siswa tetap dapat event DB):', e);
+      }
+
       router.push(`/quiz/${id}/progress`);
     } catch (err) {
       console.error(err);
