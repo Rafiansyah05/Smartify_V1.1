@@ -189,7 +189,7 @@ export async function POST(request: NextRequest, context: any) {
           parsedScore = Math.min(10, Math.max(0, parsedScore));
           
           pointsEarned = Number(parsedScore.toFixed(2));
-          if (pointsEarned >= 6) {
+          if (pointsEarned > 5) {
             correctCount++;
             isCorrect = true;
           } else {

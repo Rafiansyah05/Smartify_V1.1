@@ -91,18 +91,6 @@ export default function VerifyForm({ emailParam }: VerifyFormProps) {
             {success && <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-xl text-sm">{success}</div>}
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-[#3E484F]">Email Address</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full px-4 py-3 bg-input rounded-xl focus:outline-none focus:ring-2 focus:ring-ring"
-                  required
-                  disabled={!!emailParam}
-                />
-              </div>
 
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-[#3E484F]">Kode Verifikasi</label>
