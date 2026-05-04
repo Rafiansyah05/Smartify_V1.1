@@ -4,7 +4,7 @@ import { jwtVerify } from 'jose';
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
-const publicRoutes = ['/auth/login', '/auth/regist', '/auth/verify'];
+const publicRoutes = ['/auth/login', '/auth/regist', '/auth/verify', '/auth/forgot-password', '/auth/reset-password'];
 const protectedRoutes = ['/dashboard'];
 
 export async function middleware(request: NextRequest) {

@@ -86,7 +86,7 @@ export default function LoginForm({ redirectTo }: LoginFormProps) {
                   <label htmlFor="password" className="block text-sm font-medium text-[#3E484F]">
                     Password
                   </label>
-                  <Link href="/forgot-password" className="text-sm text-primary hover:underline">
+                  <Link href="/auth/forgot-password" className="text-sm text-primary hover:underline">
                     Forgot Password?
                   </Link>
                 </div>

@@ -68,3 +68,85 @@ export async function sendVerificationEmail(email: string, code: string, nama: s
     throw new Error('Gagal mengirim email verifikasi');
   }
 }
+
+export async function sendPasswordResetEmail(email: string, nama: string, resetUrl: string) {
+  const from = (process.env.FROM_EMAIL || 'Smartify <noreply@pradatelyu.online>').trim();
+
+  try {
+    const { error } = await resend.emails.send({
+      from,
+      to: email,
+      subject: 'Atur ulang password akun Smartify Anda',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="font-family: 'Poppins', Arial, sans-serif; background-color: #f5f7fa; margin: 0; padding: 24px 0;">
+          <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+            <div style="background: linear-gradient(135deg, #4ac9ff 0%, #2d9cdb 100%); padding: 28px 24px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 26px;">Smartify</h1>
+              <p style="color: rgba(255,255,255,0.92); margin: 8px 0 0; font-size: 14px;">Platform generate kuis digital untuk pengajar</p>
+            </div>
+            <div style="padding: 32px 28px;">
+              <p style="color: #1a1a1a; margin: 0 0 16px; font-size: 16px;">Halo <strong>${escapeHtml(nama)}</strong>,</p>
+              <p style="color: #4a5568; line-height: 1.65; margin: 0 0 16px; font-size: 15px;">
+                Kami menerima permintaan untuk mengatur ulang password akun Smartify yang terhubung dengan alamat email ini.
+              </p>
+              <p style="color: #4a5568; line-height: 1.65; margin: 0 0 16px; font-size: 15px;">
+                Untuk keamanan Anda, tautan di bawah hanya dapat digunakan dalam waktu terbatas dan akan menjadi tidak berlaku setelah password berhasil diubah.
+              </p>
+              <ul style="color: #4a5568; line-height: 1.65; margin: 0 0 20px; padding-left: 20px; font-size: 14px;">
+                <li>Jika Anda yang meminta reset, silakan klik tombol di bawah.</li>
+                <li>Jika Anda tidak meminta perubahan ini, abaikan email ini—akun Anda tetap aman.</li>
+                <li>Jangan bagikan tautan ini kepada siapa pun.</li>
+              </ul>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 28px auto;">
+                <tr>
+                  <td style="border-radius: 12px; background: linear-gradient(135deg, #4ac9ff 0%, #2d9cdb 100%);">
+                    <a href="${escapeAttr(resetUrl)}" target="_blank" rel="noopener noreferrer"
+                      style="display: inline-block; padding: 14px 28px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; border-radius: 12px;">
+                      Atur password baru
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="color: #718096; font-size: 13px; line-height: 1.6; margin: 0 0 8px;">
+                Tombol tidak berfungsi? Salin dan tempel tautan berikut ke peramban Anda:
+              </p>
+              <p style="color: #2d9cdb; font-size: 12px; word-break: break-all; margin: 0;">${escapeHtml(resetUrl)}</p>
+              <p style="color: #a0aec0; font-size: 12px; margin: 24px 0 0;">Tautan berlaku selama 1 jam.</p>
+            </div>
+            <div style="background-color: #f5f7fa; padding: 20px 28px; text-align: center; border-top: 1px solid #e2e8f0;">
+              <p style="color: #a0aec0; margin: 0; font-size: 12px; line-height: 1.5;">
+                Email ini dikirim otomatis; mohon tidak membalas langsung ke alamat ini.<br />
+                &copy; Smartify — membantu guru membuat soal dengan mudah
+              </p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) throw error;
+    return { success: true };
+  } catch (error) {
+    console.error('Password reset email failed:', error);
+    throw new Error('Gagal mengirim email atur ulang password');
+  }
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function escapeAttr(url: string): string {
+  return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}

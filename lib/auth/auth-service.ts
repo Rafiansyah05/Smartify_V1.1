@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../supabase/client';
@@ -213,4 +214,82 @@ export async function getUserFromToken(token: string) {
 // Logout
 export async function logoutUser(token: string) {
   await supabase.from('user_sessions').delete().eq('token', token);
+}
+
+function hashPasswordResetToken(plainToken: string): string {
+  return createHash('sha256').update(plainToken, 'utf8').digest('hex');
+}
+
+function generatePasswordResetToken(): string {
+  return randomBytes(32).toString('hex');
+}
+
+function parseSupabaseTimestamp(iso: string): Date {
+  let s = iso;
+  if (typeof s === 'string' && !s.endsWith('Z') && !s.includes('+')) {
+    s += 'Z';
+  }
+  return new Date(s);
+}
+
+/** Mengembalikan token mentah untuk disematkan di URL email, atau null jika email tidak terdaftar. */
+export async function createPasswordResetToken(email: string): Promise<{ plainToken: string; nama: string } | null> {
+  const trimmed = email.trim();
+  const { data: user, error } = await supabaseServer.from('users').select('user_id, nama').eq('email', trimmed).maybeSingle();
+
+  if (error || !user) {
+    return null;
+  }
+
+  const plainToken = generatePasswordResetToken();
+  const token_hash = hashPasswordResetToken(plainToken);
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 1);
+
+  await supabaseServer.from('password_reset_tokens').delete().eq('user_id', user.user_id);
+
+  const { error: insertError } = await supabaseServer.from('password_reset_tokens').insert({
+    user_id: user.user_id,
+    token_hash,
+    expires_at: expiresAt.toISOString(),
+  });
+
+  if (insertError) {
+    console.error('password_reset_tokens insert:', insertError);
+    throw new Error('Gagal membuat tautan reset password');
+  }
+
+  return { plainToken, nama: user.nama };
+}
+
+export async function resetPasswordWithToken(plainToken: string, password: string): Promise<void> {
+  if (!plainToken || plainToken.length < 32) {
+    throw new Error('Tautan tidak valid atau sudah kadaluarsa');
+  }
+
+  const token_hash = hashPasswordResetToken(plainToken.trim());
+
+  const { data: row, error } = await supabaseServer.from('password_reset_tokens').select('id, user_id, expires_at').eq('token_hash', token_hash).maybeSingle();
+
+  if (error || !row) {
+    throw new Error('Tautan tidak valid atau sudah kadaluarsa');
+  }
+
+  const expiresAt = parseSupabaseTimestamp(row.expires_at as string);
+  if (new Date() > expiresAt) {
+    await supabaseServer.from('password_reset_tokens').delete().eq('id', row.id);
+    throw new Error('Tautan tidak valid atau sudah kadaluarsa');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  const { error: updateUserError } = await supabaseServer.from('users').update({ password_hash: passwordHash }).eq('user_id', row.user_id);
+
+  if (updateUserError) {
+    console.error('reset password user update:', updateUserError);
+    throw new Error('Gagal memperbarui password');
+  }
+
+  await supabaseServer.from('password_reset_tokens').delete().eq('user_id', row.user_id);
+  await supabaseServer.from('user_sessions').delete().eq('user_id', row.user_id);
 }
