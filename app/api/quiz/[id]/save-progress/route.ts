@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase/server';
+import { assertActiveQrForQuiz } from '@/lib/quiz/student-session';
 
 async function getRawQuizId(request: NextRequest, context: any) {
   const params = await context.params;
@@ -17,9 +18,30 @@ export async function POST(request: NextRequest, context: any) {
     if (!quizId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
 
     const body = await request.json();
-    const { pesertaId, answers } = body;
-    
-    if (!pesertaId || !answers) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
+    const { pesertaId, answers, token } = body;
+    const quizIdInt = parseInt(String(quizId), 10);
+    if (Number.isNaN(quizIdInt)) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+
+    if (!pesertaId || !answers || !token || typeof token !== 'string' || !String(token).trim()) {
+      return NextResponse.json({ error: 'Data tidak lengkap (perlu token QR dari link ruang tunggu)' }, { status: 400 });
+    }
+
+    try {
+      await assertActiveQrForQuiz(supabase, quizIdInt, String(token).trim());
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message || 'Token tidak valid' }, { status: 403 });
+    }
+
+    const { data: pesertaRow, error: pesertaErr } = await supabase
+      .from('peserta_kuis')
+      .select('peserta_id')
+      .eq('peserta_id', pesertaId)
+      .eq('kuis_id', quizIdInt)
+      .maybeSingle();
+
+    if (pesertaErr || !pesertaRow) {
+      return NextResponse.json({ error: 'Peserta tidak valid untuk kuis ini' }, { status: 403 });
+    }
 
     const records: any[] = [];
     const submitTime = new Date().toISOString();

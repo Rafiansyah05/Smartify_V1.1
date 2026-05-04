@@ -43,7 +43,11 @@ export default function DashboardPage() {
     });
   };
 
-  const filteredQuizzes = quizzes.filter((quiz) => quiz.judul?.toLowerCase().includes(searchQuery.toLowerCase()));
+  const q = searchQuery.trim().toLowerCase();
+  const filteredQuizzes = quizzes.filter((quiz) => quiz.judul?.toLowerCase().includes(q));
+  const hasAnyQuiz = quizzes.length > 0;
+  const searchActive = searchQuery.trim().length > 0;
+  const searchHasNoMatch = searchActive && hasAnyQuiz && filteredQuizzes.length === 0;
 
   return (
     <div>
@@ -98,7 +102,7 @@ export default function DashboardPage() {
         <div className="flex justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
-      ) : (
+      ) : !searchHasNoMatch ? (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3' : 'flex flex-col gap-4'}>
           {filteredQuizzes.map((quiz) => (
             <QuizCard
@@ -113,16 +117,33 @@ export default function DashboardPage() {
             />
           ))}
         </div>
+      ) : null}
+
+      {/* Pencarian tidak ada hasil (user sudah punya kuis) */}
+      {!loading && searchHasNoMatch && (
+        <div className="rounded-2xl border border-border bg-card px-6 py-14 text-center shadow-sm">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+            <Search className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="text-lg font-semibold text-card-foreground">Kuis tidak ditemukan</h3>
+          <p className="mt-2 text-sm text-muted-foreground">Tidak ada judul kuis yang cocok dengan &ldquo;{searchQuery.trim()}&rdquo;. Coba kata kunci lain.</p>
+          <Link
+            href="/generate"
+            className="mt-6 inline-flex min-h-[48px] items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Buat kuis sekarang
+          </Link>
+        </div>
       )}
 
-      {/* Empty State */}
-      {!loading && filteredQuizzes.length === 0 && (
-        <div className="text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-            <FileText className="w-8 h-8 text-gray-400" />
+      {/* Belum ada kuis sama sekali */}
+      {!loading && !hasAnyQuiz && (
+        <div className="py-16 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+            <FileText className="h-8 w-8 text-gray-400" />
           </div>
           <h3 className="text-lg font-medium text-gray-800">Belum ada kuis</h3>
-          <p className="text-gray-500 mt-1 mb-4">Mulai buat kuis pertama Anda</p>
+          <p className="mb-4 mt-1 text-gray-500">Mulai buat kuis pertama Anda</p>
           <Link
             href="/generate"
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/90"

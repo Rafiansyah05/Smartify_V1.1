@@ -33,7 +33,11 @@ export async function GET(request: NextRequest, context: any) {
 
     const qrTokenParam = request.nextUrl.searchParams.get('token');
 
-    const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, judul, tingkat_kesulitan, durasi_menit, total_soal, status, guru_id, kkm, created_at').eq('kuis_id', quizIdInt).single();
+    const { data: quiz, error: quizError } = await supabase
+      .from('kuis')
+      .select('kuis_id, judul, tingkat_kesulitan, durasi_menit, total_soal, status, guru_id, kkm, created_at, waktu_mulai_sesi, updated_at')
+      .eq('kuis_id', quizIdInt)
+      .single();
 
     if (quizError || !quiz) {
       return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
@@ -102,10 +106,14 @@ export async function POST(request: NextRequest, context: any) {
       return NextResponse.json({ error: 'ID kuis harus berupa angka' }, { status: 400 });
     }
 
-    const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, judul, status').eq('kuis_id', quizIdInt).single();
+    const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, judul, status, guru_id').eq('kuis_id', quizIdInt).single();
 
     if (quizError || !quiz) {
       return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
+    }
+
+    if (quiz.guru_id !== user.user_id) {
+      return NextResponse.json({ error: 'Anda tidak memiliki akses untuk mengelola ruang tunggu kuis ini' }, { status: 403 });
     }
 
     await supabase.from('qr_codes').update({ is_active: false }).eq('kuis_id', quizIdInt).eq('is_active', true);
@@ -137,6 +145,7 @@ export async function POST(request: NextRequest, context: any) {
       .update({
         status: 'waiting',
         updated_at: new Date().toISOString(),
+        waktu_mulai_sesi: null,
       })
       .eq('kuis_id', quizIdInt);
 

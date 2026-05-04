@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { isEssayUraian, normalizeAnswer, parseKunciJawaban } from '@/lib/quiz/kunci-jawaban';
+import { computeOngoingSessionRemainingSeconds } from '@/lib/quiz/student-session';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
@@ -135,9 +136,14 @@ export async function POST(request: NextRequest, context: any) {
       return NextResponse.json({ error: 'pesertaId dan answers wajib diisi' }, { status: 400 });
     }
 
-    const { data: pesertaExists, error: pesertaError } = await supabase.from('peserta_kuis').select('peserta_id, nama_siswa, status').eq('peserta_id', pesertaId).maybeSingle();
+    const { data: pesertaExists, error: pesertaError } = await supabase
+      .from('peserta_kuis')
+      .select('peserta_id, nama_siswa, status, kuis_id')
+      .eq('peserta_id', pesertaId)
+      .eq('kuis_id', quizIdInt)
+      .maybeSingle();
     if (pesertaError || !pesertaExists) {
-      return NextResponse.json({ error: 'Peserta tidak ditemukan' }, { status: 404 });
+      return NextResponse.json({ error: 'Peserta tidak ditemukan untuk kuis ini' }, { status: 404 });
     }
 
     if (pesertaExists.status === 'selesai') {
@@ -152,9 +158,26 @@ export async function POST(request: NextRequest, context: any) {
 
     console.log('Processing submission for:', pesertaExists.nama_siswa);
 
-    const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, tingkat_kesulitan, kkm').eq('kuis_id', quizIdInt).single();
+    const { data: quiz, error: quizError } = await supabase
+      .from('kuis')
+      .select('kuis_id, tingkat_kesulitan, kkm, status, durasi_menit, waktu_mulai_sesi, updated_at')
+      .eq('kuis_id', quizIdInt)
+      .single();
     if (quizError || !quiz) {
       return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
+    }
+
+    if (quiz.status !== 'ongoing') {
+      return NextResponse.json({ error: 'Kuis tidak sedang berlangsung' }, { status: 400 });
+    }
+
+    const sessionRemaining = computeOngoingSessionRemainingSeconds({
+      durasi_menit: quiz.durasi_menit,
+      waktu_mulai_sesi: quiz.waktu_mulai_sesi,
+      updated_at: quiz.updated_at,
+    });
+    if (sessionRemaining < -120) {
+      return NextResponse.json({ error: 'Sesi kuis sudah terlalu lama berakhir. Tidak dapat mengumpulkan jawaban.' }, { status: 400 });
     }
 
     const { data: questions, error: questionsError } = await supabase.from('soal').select('*').eq('kuis_id', quizIdInt);

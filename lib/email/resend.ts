@@ -6,7 +6,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export async function sendVerificationEmail(email: string, code: string, nama: string) {
   try {
     const { data, error } = await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'Smartify <noreply@smartify.com>',
+      from: process.env.FROM_EMAIL || 'Smartify <noreply@pradatelyu.online> ',
       to: email,
       subject: 'Verifikasi Email Smartify - Kode OTP Anda',
       html: `
@@ -26,7 +26,7 @@ export async function sendVerificationEmail(email: string, code: string, nama: s
             
             <!-- Content -->
             <div style="padding: 30px 25px;">
-              <h2 style="color: #1a1a1a; margin-top: 0;">Halo, ${nama}! 👋</h2>
+              <h2 style="color: #1a1a1a; margin-top: 0;">Halo, ${nama}!</h2>
               <p style="color: #4a5568; line-height: 1.6;">Terima kasih telah mendaftar di <strong>Smartify</strong>. Gunakan kode verifikasi di bawah ini untuk mengaktifkan akun Anda:</p>
               
               <!-- Verification Code Box -->
@@ -39,7 +39,7 @@ export async function sendVerificationEmail(email: string, code: string, nama: s
               
               <div style="background-color: #fff3e0; border-radius: 12px; padding: 15px; margin: 20px 0;">
                 <p style="color: #e67e22; margin: 0; font-size: 14px;">
-                  ⏰ Kode ini akan kadaluarsa dalam <strong>15 menit</strong>
+                  Kode ini akan kadaluarsa dalam <strong>15 menit</strong>
                 </p>
               </div>
               

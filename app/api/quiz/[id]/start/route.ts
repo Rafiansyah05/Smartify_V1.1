@@ -34,10 +34,14 @@ export async function POST(request: NextRequest, context: any) {
       return NextResponse.json({ error: 'Unauthorized - hanya guru yang dapat memulai kuis' }, { status: 401 });
     }
 
-    const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, durasi_menit, judul').eq('kuis_id', quizIdInt).single();
+    const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, durasi_menit, judul, guru_id').eq('kuis_id', quizIdInt).single();
 
     if (quizError || !quiz) {
       return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
+    }
+
+    if (quiz.guru_id !== user.user_id) {
+      return NextResponse.json({ error: 'Anda tidak memiliki akses untuk memulai kuis ini' }, { status: 403 });
     }
 
     const startTime = new Date();
@@ -48,6 +52,7 @@ export async function POST(request: NextRequest, context: any) {
       .update({
         status: 'ongoing',
         updated_at: startTime.toISOString(),
+        waktu_mulai_sesi: startTime.toISOString(),
       })
       .eq('kuis_id', quizIdInt);
 

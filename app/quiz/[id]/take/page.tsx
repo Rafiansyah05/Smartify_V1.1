@@ -117,11 +117,18 @@ export default function TakeQuizPage() {
         return;
       }
 
-      const res = await fetch(`/api/quiz/${id}?token=${qrToken}`, { credentials: 'include' });
+      const pesertaId = participantData.peserta_id;
+      const res = await fetch(`/api/quiz/${id}?token=${encodeURIComponent(qrToken || '')}&pesertaId=${pesertaId}`, {
+        credentials: 'include',
+      });
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Gagal memuat kuis');
+        if (res.status === 403 && data?.code === 'JOIN_REQUIRED') {
+          setError(data.error || 'Silakan masuk melalui ruang tunggu dan isi nama lengkap terlebih dahulu.');
+        } else {
+          setError(data.error || 'Gagal memuat kuis');
+        }
         return;
       }
 
@@ -142,8 +149,9 @@ export default function TakeQuizPage() {
       }));
       setShuffledQuestions(shuffledWithChoices);
 
-      // Set timer based on quiz duration
-      if (data.kuis?.durasi_menit) {
+      if (typeof data.timeRemainingSeconds === 'number' && data.timeRemainingSeconds >= 0) {
+        setTimeRemaining(data.timeRemainingSeconds);
+      } else if (data.kuis?.durasi_menit) {
         setTimeRemaining(data.kuis.durasi_menit * 60);
       }
 
@@ -184,14 +192,15 @@ export default function TakeQuizPage() {
         saveAnswersLocally();
         
         // Sync to server for real-time teacher progress
-        if (participant?.peserta_id) {
+        if (participant?.peserta_id && qrToken) {
           fetch(`/api/quiz/${id}/save-progress`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               pesertaId: participant.peserta_id,
-              answers: answers
-            })
+              answers: answers,
+              token: qrToken,
+            }),
           }).catch(console.error);
         }
         
@@ -205,7 +214,7 @@ export default function TakeQuizPage() {
         clearTimeout(autoSaveTimeoutRef.current);
       }
     };
-  }, [answers, saveAnswersLocally, participant?.peserta_id, id]);
+  }, [answers, saveAnswersLocally, participant?.peserta_id, id, qrToken]);
 
   // Submit quiz to server
   const handleSubmit = useCallback(
@@ -311,6 +320,33 @@ export default function TakeQuizPage() {
     }
     fetchQuiz();
   }, [id, qrToken]);
+
+  useEffect(() => {
+    const keys = ['n', 'nomor', 'soal', 'q', 'question'];
+    if (typeof window === 'undefined' || !keys.some((k) => searchParams.has(k))) return;
+    const u = new URL(window.location.href);
+    keys.forEach((k) => u.searchParams.delete(k));
+    window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!id || !qrToken || !participant?.peserta_id || loading || error) return;
+    const sync = async () => {
+      try {
+        const res = await fetch(`/api/quiz/${id}?token=${encodeURIComponent(qrToken)}&pesertaId=${participant.peserta_id}`, {
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (res.ok && typeof data.timeRemainingSeconds === 'number') {
+          setTimeRemaining(data.timeRemainingSeconds);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    const t = window.setInterval(sync, 45000);
+    return () => window.clearInterval(t);
+  }, [id, qrToken, participant?.peserta_id, loading, error]);
 
   // Siapkan anti-cheat singkat setelah soal aktif (hindari alarm saat mount / reload)
   useEffect(() => {

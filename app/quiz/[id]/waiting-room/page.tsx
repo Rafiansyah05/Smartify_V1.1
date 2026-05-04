@@ -34,7 +34,7 @@ export default function WaitingRoomPage() {
 
   const hasRedirectedRef = useRef(false);
   const channelRef = useRef<any>(null);
-  const isTeacherRef = useRef(false);
+  const isQuizOwnerRef = useRef(false);
   const redirectToTakeQuizRef = useRef<() => void>(() => {});
   const fetchRoomRef = useRef<(showLoading?: boolean) => Promise<void>>(async (_showLoading = true) => {});
   const getParticipantStorageKeyRef = useRef<() => string>(() => '');
@@ -50,18 +50,21 @@ export default function WaitingRoomPage() {
   const [kickConfirm, setKickConfirm] = useState<{ id: number; name: string } | null>(null);
   const [kicking, setKicking] = useState(false);
 
-  const isTeacher = useMemo(() => user?.role === 'guru' || user?.role === 'admin', [user]);
+  const isQuizOwner = useMemo(() => {
+    if (!user || quiz == null) return false;
+    return Number(user.user_id) === Number(quiz.guru_id);
+  }, [user, quiz]);
 
   useEffect(() => {
     studentPesertaIdRef.current = joinedParticipant?.peserta_id ?? null;
   }, [joinedParticipant?.peserta_id]);
 
   useEffect(() => {
-    if (!joinedParticipant?.peserta_id || isTeacher) return;
+    if (!joinedParticipant?.peserta_id || isQuizOwner) return;
     if (participants.some((p) => p.peserta_id === joinedParticipant.peserta_id)) {
       participantEverInListRef.current = true;
     }
-  }, [participants, joinedParticipant?.peserta_id, isTeacher]);
+  }, [participants, joinedParticipant?.peserta_id, isQuizOwner]);
 
   const qrUrl = useMemo(() => {
     if (!qrCode?.qr_image_url) return null;
@@ -73,7 +76,7 @@ export default function WaitingRoomPage() {
   const getWaitingRoomStorageKey = useCallback(() => `waiting-room-${id}-${qrToken}`, [id, qrToken]);
 
   useEffect(() => {
-    if (isTeacher || !joinedParticipant?.peserta_id || loading) return;
+    if (isQuizOwner || !joinedParticipant?.peserta_id || loading) return;
     const me = joinedParticipant.peserta_id;
     const inList = participants.some((p) => p.peserta_id === me);
     if (inList) participantEverInListRef.current = true;
@@ -93,7 +96,7 @@ export default function WaitingRoomPage() {
   }, [
     participants,
     joinedParticipant,
-    isTeacher,
+    isQuizOwner,
     loading,
     id,
     qrToken,
@@ -162,11 +165,11 @@ export default function WaitingRoomPage() {
 
   // === AUTO REDIRECT EFFECT IF ALREADY ONGOING ===
   useEffect(() => {
-    if (quiz?.status === 'ongoing' && !isTeacher && !hasRedirectedRef.current) {
+    if (quiz?.status === 'ongoing' && !isQuizOwner && !hasRedirectedRef.current) {
       console.log('🚀 Quiz is already ongoing, redirecting student immediately...');
       redirectToTakeQuiz();
     }
-  }, [quiz?.status, isTeacher, redirectToTakeQuiz]);
+  }, [quiz?.status, isQuizOwner, redirectToTakeQuiz]);
 
   // === FETCH ROOM DATA ===
   const fetchRoom = useCallback(
@@ -200,7 +203,7 @@ export default function WaitingRoomPage() {
     [id, qrToken],
   );
 
-  isTeacherRef.current = isTeacher;
+  isQuizOwnerRef.current = isQuizOwner;
   redirectToTakeQuizRef.current = redirectToTakeQuiz;
   fetchRoomRef.current = fetchRoom;
   getParticipantStorageKeyRef.current = getParticipantStorageKey;
@@ -244,7 +247,7 @@ export default function WaitingRoomPage() {
         filter: `kuis_id=eq.${quizIdInt}`,
       },
       (payload: { new?: { status?: string } }) => {
-        if (payload.new?.status === 'ongoing' && !isTeacherRef.current && !hasRedirectedRef.current) {
+        if (payload.new?.status === 'ongoing' && !isQuizOwnerRef.current && !hasRedirectedRef.current) {
           console.log('🚀 Realtime DB: Quiz started, redirect siswa…');
           redirectToTakeQuizRef.current();
         }
@@ -256,7 +259,7 @@ export default function WaitingRoomPage() {
     channel.on('broadcast', { event: 'quiz_started' }, ({ payload }: { payload?: { quizId?: number } }) => {
       const qid = payload?.quizId;
       if (qid !== quizIdInt) return;
-      if (!isTeacherRef.current && !hasRedirectedRef.current) {
+      if (!isQuizOwnerRef.current && !hasRedirectedRef.current) {
         console.log('🚀 Broadcast: Quiz started, redirect siswa…');
         redirectToTakeQuizRef.current();
       }
@@ -279,7 +282,7 @@ export default function WaitingRoomPage() {
       if (oldKuis != null && Number(oldKuis) !== quizIdInt) return;
       const oldId = payload.old?.peserta_id as number | undefined;
       const sessId = idRef.current;
-      if (oldId && oldId === studentPesertaIdRef.current && !isTeacherRef.current && !kickHandledRef.current) {
+      if (oldId && oldId === studentPesertaIdRef.current && !isQuizOwnerRef.current && !kickHandledRef.current) {
         kickHandledRef.current = true;
         participantEverInListRef.current = false;
         try {
@@ -380,7 +383,14 @@ export default function WaitingRoomPage() {
       participantEverInListRef.current = true;
       setJoinedParticipant(participantToStore);
       saveParticipantToStorage(participantToStore);
-      setParticipants((prev) => [...prev, data.participant]);
+      setParticipants((prev) => (prev.some((x) => x.peserta_id === data.participant.peserta_id) ? prev : [...prev, data.participant]));
+
+      if (data.quizOngoing) {
+        await fetchRoom(false);
+        router.push(`/quiz/${id}/take?token=${encodeURIComponent(qrToken)}`);
+        return;
+      }
+
       await fetchRoom(false);
     } catch (err) {
       console.error(err);
@@ -749,6 +759,24 @@ export default function WaitingRoomPage() {
     </div>
   );
 
+  const renderAccessHintForGuests = () => (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4 py-12">
+      <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
+        <h1 className="mb-3 text-xl font-bold text-gray-800 sm:text-2xl">Link ruang tunggu tidak lengkap</h1>
+        <p className="mb-6 text-sm leading-relaxed text-gray-500">
+          Ruang tunggu guru hanya untuk pemilik kuis. Sebagai siswa, gunakan link atau QR yang dibagikan guru (biasanya berisi token di URL).
+        </p>
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+        >
+          Kembali ke beranda
+        </button>
+      </div>
+    </div>
+  );
+
   const kickModal = kickConfirm ? (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
@@ -821,8 +849,17 @@ export default function WaitingRoomPage() {
     );
   }
 
+  if (!isCheckingStorage && !loading && quiz && !isQuizOwner && !qrToken) {
+    return (
+      <>
+        {kickModal}
+        {renderAccessHintForGuests()}
+      </>
+    );
+  }
+
   if (!isCheckingStorage) {
-    if (!isTeacher && !joinedParticipant && qrToken) {
+    if (!isQuizOwner && !joinedParticipant && qrToken) {
       return (
         <>
           {kickModal}
@@ -830,7 +867,7 @@ export default function WaitingRoomPage() {
         </>
       );
     }
-    if (!isTeacher && joinedParticipant) {
+    if (!isQuizOwner && joinedParticipant) {
       return (
         <>
           {kickModal}

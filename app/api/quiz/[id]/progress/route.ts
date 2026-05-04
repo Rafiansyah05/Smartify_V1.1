@@ -22,8 +22,16 @@ export async function GET(request: NextRequest, context: any) {
     }
 
     // Ambil data kuis
-    const { data: quiz, error: quizError } = await supabase.from('kuis').select('kuis_id, judul, durasi_menit, total_soal, status, tingkat_kesulitan, kkm, created_at, updated_at').eq('kuis_id', quizIdInt).single();
-    if (quizError) return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
+    const { data: quiz, error: quizError } = await supabase
+      .from('kuis')
+      .select('kuis_id, judul, durasi_menit, total_soal, status, tingkat_kesulitan, kkm, created_at, updated_at, guru_id, waktu_mulai_sesi')
+      .eq('kuis_id', quizIdInt)
+      .single();
+    if (quizError || !quiz) return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
+
+    if (quiz.guru_id !== user.user_id) {
+      return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 });
+    }
 
     // Total soal
     const { count: totalQuestions } = await supabase.from('soal').select('soal_id', { count: 'exact', head: true }).eq('kuis_id', quizIdInt);
@@ -111,7 +119,12 @@ export async function GET(request: NextRequest, context: any) {
     });
 
     const completed = processed.filter((p) => p.status === 'selesai');
-    const inProgress = processed.filter((p) => p.status === 'started' || p.status === 'sedang_mengerjakan');
+    const quizStatus = (quiz.status as string) || '';
+    const inProgress = processed.filter((p) => {
+      if (p.status === 'started' || p.status === 'sedang_mengerjakan') return true;
+      if (quizStatus === 'ongoing' && p.status === 'waiting') return true;
+      return false;
+    });
     const completedScores = completed.map((p) => p.nilai).filter((n) => n !== null);
     const avgScore = completedScores.length ? Math.round(completedScores.reduce((a, b) => a + b, 0) / completedScores.length) : 0;
     const highestScore = completedScores.length ? Math.max(...completedScores) : 0;

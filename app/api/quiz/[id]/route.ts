@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase/server';
 import { getUserFromToken } from '@/lib/auth/auth-service';
+import {
+  computeOngoingSessionRemainingSeconds,
+  getPesertaForOngoingTake,
+  stripKunciFromSoalList,
+} from '@/lib/quiz/student-session';
 
 function getRawQuizId(request: NextRequest, params: any) {
   const idFromParams = params?.id;
@@ -37,12 +42,14 @@ export async function GET(request: NextRequest, context: any) {
       user = await getUserFromToken(token);
     }
 
-    // Ambil data kuis (public data, tidak perlu auth untuk preview)
     const { data: kuis, error: kuisError } = await supabase.from('kuis').select('*').eq('kuis_id', quizIdInt).single();
 
     if (kuisError || !kuis) {
       return NextResponse.json({ error: 'Kuis tidak ditemukan' }, { status: 404 });
     }
+
+    const isOwner = Boolean(user && user.user_id === kuis.guru_id);
+    const isAdmin = Boolean(user && user.role === 'admin');
 
     // Ambil soal
     const { data: soalList, error: soalError } = await supabase.from('soal').select('*').eq('kuis_id', quizIdInt).order('urutan', { ascending: true });
@@ -50,16 +57,14 @@ export async function GET(request: NextRequest, context: any) {
     if (soalError) throw soalError;
 
     // Ambil pilihan jawaban dan kunci jawaban untuk setiap soal
-    const populatedSoal = await Promise.all(
+    const populatedSoalFull = await Promise.all(
       (soalList || []).map(async (soal) => {
-        // Ambil pilihan jawaban (untuk pilihan ganda)
         let pilihan = [];
         if (soal.tipe_soal === 'pilihan_ganda') {
           const { data: pilihanData } = await supabase.from('pilihan_jawaban').select('*').eq('soal_id', soal.soal_id).order('urutan', { ascending: true });
           pilihan = pilihanData || [];
         }
 
-        // Ambil kunci jawaban (penjelasan dari Gemini) untuk SEMUA tipe soal
         const { data: kunciJawaban } = await supabase.from('kunci_jawaban').select('*').eq('soal_id', soal.soal_id).maybeSingle();
 
         return {
@@ -70,9 +75,73 @@ export async function GET(request: NextRequest, context: any) {
       }),
     );
 
+    if (isOwner || isAdmin) {
+      return NextResponse.json({
+        kuis,
+        soal: populatedSoalFull,
+        pembuat: user?.nama || 'Smartify AI',
+      });
+    }
+
+    /** Siswa: kuis ongoing + token QR wajib daftar (pesertaId) — tanpa itu tidak boleh lihat soal */
+    if (kuis.status === 'ongoing' && qrToken) {
+      const pesertaIdRaw = request.nextUrl.searchParams.get('pesertaId');
+      const pesertaId = pesertaIdRaw ? parseInt(pesertaIdRaw, 10) : NaN;
+      if (!pesertaIdRaw || Number.isNaN(pesertaId)) {
+        return NextResponse.json(
+          {
+            error: 'Silakan masuk melalui ruang tunggu dan isi nama lengkap terlebih dahulu.',
+            code: 'JOIN_REQUIRED',
+          },
+          { status: 403 },
+        );
+      }
+
+      try {
+        const p = await getPesertaForOngoingTake(supabase, quizIdInt, pesertaId, qrToken);
+        if (p.status === 'waiting') {
+          await supabase.from('peserta_kuis').update({ status: 'started' }).eq('peserta_id', pesertaId);
+        }
+        if (p.status === 'selesai') {
+          return NextResponse.json({ error: 'Anda sudah menyelesaikan kuis ini.' }, { status: 403 });
+        }
+
+        const timeRemainingSeconds = computeOngoingSessionRemainingSeconds({
+          durasi_menit: kuis.durasi_menit,
+          waktu_mulai_sesi: kuis.waktu_mulai_sesi,
+          updated_at: kuis.updated_at,
+        });
+
+        if (timeRemainingSeconds <= 0) {
+          return NextResponse.json({ error: 'Waktu kuis telah habis.' }, { status: 403 });
+        }
+
+        const soalStudent = stripKunciFromSoalList(populatedSoalFull);
+
+        return NextResponse.json({
+          kuis,
+          soal: soalStudent,
+          pembuat: user?.nama || 'Smartify AI',
+          timeRemainingSeconds,
+        });
+      } catch (e: any) {
+        const status = e?.status || 403;
+        return NextResponse.json({ error: e.message || 'Akses ditolak' }, { status });
+      }
+    }
+
+    if (kuis.status === 'ongoing' && !qrToken) {
+      return NextResponse.json(
+        { error: 'Token tidak valid. Gunakan link dari QR guru.', code: 'JOIN_REQUIRED' },
+        { status: 403 },
+      );
+    }
+
+    const soalPublic = stripKunciFromSoalList(populatedSoalFull);
+
     return NextResponse.json({
       kuis,
-      soal: populatedSoal,
+      soal: soalPublic,
       pembuat: user?.nama || 'Smartify AI',
     });
   } catch (error: any) {

@@ -18,11 +18,19 @@ interface NavbarProps {
   fullWidth?: boolean;
   showBackButton?: boolean;
   backButtonText?: string;
+  /** Jika diisi, tombol kembali mengarah ke path ini (default: /dashboard) */
+  backHref?: string;
   /** Buka drawer sidebar (mobile dashboard / generate) */
   onOpenMobileNav?: () => void;
 }
 
-export function Navbar({ fullWidth = false, showBackButton = false, backButtonText = 'Back to Dashboard', onOpenMobileNav }: NavbarProps) {
+export function Navbar({
+  fullWidth = false,
+  showBackButton = false,
+  backButtonText = 'Back to Dashboard',
+  backHref,
+  onOpenMobileNav,
+}: NavbarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [user, setUser] = useState<UserData | null>(null);
@@ -68,7 +76,7 @@ export function Navbar({ fullWidth = false, showBackButton = false, backButtonTe
   };
 
   const handleBack = () => {
-    router.push('/dashboard');
+    router.push(backHref || '/dashboard');
   };
 
   const displayName = user?.nama || 'Siswa';

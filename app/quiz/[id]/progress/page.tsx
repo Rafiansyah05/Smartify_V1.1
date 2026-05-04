@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { RefreshCw, Clock, CheckCircle2, Award, TrendingUp, Users, FileText, Download } from 'lucide-react';
+import Link from 'next/link';
+import { RefreshCw, Clock, CheckCircle2, Award, TrendingUp, Users, FileText, Download, Eye } from 'lucide-react';
 import { Navbar } from '@/components/dashboard/Navbar';
 import { useQuizRealtime } from '@/hooks/useQuizRealtime';
 import { downloadExcel } from '@/lib/utils/exportExcel';
@@ -41,8 +42,9 @@ export default function ProgressPage() {
         if (data.quiz?.status === 'ongoing') {
           setQuizStartTime((prev) => {
             if (prev) return prev;
-            if (data.quiz?.updated_at) {
-              const dStr = data.quiz.updated_at;
+            const sessionIso = data.quiz?.waktu_mulai_sesi || data.quiz?.updated_at;
+            if (sessionIso) {
+              const dStr = sessionIso;
               return new Date(dStr.endsWith('Z') || dStr.includes('+') ? dStr : dStr + 'Z');
             }
             const earliest = data.participants?.find((p: any) => p.waktu_mulai);
@@ -99,6 +101,8 @@ export default function ProgressPage() {
     };
   }, [quiz, quizStartTime]);
 
+  const isQuizOngoing = quiz?.status === 'ongoing';
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -112,7 +116,8 @@ export default function ProgressPage() {
   };
 
   const getStatusBadge = (status: string) => {
-    if (status === 'selesai') {
+    const effective = isQuizOngoing && status === 'waiting' ? 'started' : status;
+    if (effective === 'selesai') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs">
           <CheckCircle2 className="w-3 h-3" />
@@ -120,7 +125,7 @@ export default function ProgressPage() {
         </span>
       );
     }
-    if (status === 'started' || status === 'sedang_mengerjakan') {
+    if (effective === 'started' || effective === 'sedang_mengerjakan') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs">
           <Clock className="w-3 h-3" />
@@ -177,8 +182,6 @@ export default function ProgressPage() {
     );
   }
 
-  const isQuizOngoing = quiz?.status === 'ongoing';
-
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar fullWidth showBackButton backButtonText="Back to Dashboard" />
@@ -197,7 +200,15 @@ export default function ProgressPage() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+              <Link
+                href={`/quiz/${quizId}/lihat-soal`}
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-50"
+              >
+                <Eye className="h-4 w-4 shrink-0 text-cyan-600" aria-hidden />
+                <span className="hidden sm:inline">Lihat soal</span>
+                <span className="sm:hidden">Soal</span>
+              </Link>
               {isQuizOngoing && (
                 <div className={`flex items-center gap-2 px-5 py-2.5 ${getTimeColor()} text-white rounded-full shadow-sm`} style={{ fontFamily: "'Poppins', sans-serif" }}>
                   <Clock className="w-5 h-5" />
