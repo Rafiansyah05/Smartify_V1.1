@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Upload, Lightbulb, Pencil, ChevronDown, Loader2, CheckCircle2 } from 'lucide-react';
+import { UpgradeModal } from '@/components/upgrade-modal';
+import { FREE_TRIAL_MAX_QUESTIONS, PREMIUM_MAX_QUESTIONS, isPremiumEffective } from '@/lib/subscription/plan';
 
 export default function GenerateQuizPage() {
   const router = useRouter();
@@ -20,7 +22,40 @@ export default function GenerateQuizPage() {
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
 
+  const [me, setMe] = useState<{ subscription_status?: string | null; expired_at?: string | null } | null>(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [upgradeHint, setUpgradeHint] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isPremium = isPremiumEffective(me?.subscription_status, me?.expired_at);
+  const maxQuestionsLimit = isPremium ? PREMIUM_MAX_QUESTIONS : FREE_TRIAL_MAX_QUESTIONS;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (!cancelled && res.ok && data.user) {
+          setMe(data.user);
+        }
+      } catch {
+        /* unauthenticated / siswa */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Free trial: hanya pilihan ganda — paksa tipe jika sebelumnya campuran/isian. */
+  useEffect(() => {
+    if (me === null) return;
+    if (!isPremium && (quizType === 'isian' || quizType === 'campuran')) {
+      setQuizType('pilihan_ganda');
+    }
+  }, [me, isPremium, quizType]);
 
   // Hitung total soal berdasarkan tipe yang dipilih
   const getTotalQuestions = () => {
@@ -82,8 +117,8 @@ export default function GenerateQuizPage() {
       setError('Jumlah soal minimal 1');
       return;
     }
-    if (totalSoal > 100) {
-      setError('Jumlah soal maksimal 100');
+    if (totalSoal > maxQuestionsLimit) {
+      setError(`Jumlah soal maksimal ${maxQuestionsLimit} untuk paket ${isPremium ? 'Premium' : 'Free Trial'}`);
       return;
     }
 
@@ -123,7 +158,13 @@ export default function GenerateQuizPage() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal generate kuis');
+      if (!res.ok) {
+        if (data.code === 'SUBSCRIPTION_LIMIT') {
+          setUpgradeHint(data.error || 'Upgrade ke Premium untuk akses lebih banyak.');
+          setUpgradeModalOpen(true);
+        }
+        throw new Error(data.error || 'Gagal generate kuis');
+      }
 
       setLoadingStep(5); // Completed
       setTimeout(() => {
@@ -233,8 +274,12 @@ export default function GenerateQuizPage() {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all appearance-none cursor-pointer"
                 >
                   <option value="pilihan_ganda">Pilihan Ganda</option>
-                  <option value="isian">Isian Singkat</option>
-                  <option value="campuran">Campuran (Pilihan Ganda &amp; Isian)</option>
+                  <option value="isian" disabled={!isPremium}>
+                    Isian Singkat{!isPremium ? ' (Premium)' : ''}
+                  </option>
+                  <option value="campuran" disabled={!isPremium}>
+                    Campuran (PG &amp; Isian){!isPremium ? ' (Premium)' : ''}
+                  </option>
                 </select>
                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
               </div>
@@ -260,10 +305,10 @@ export default function GenerateQuizPage() {
                         value={multipleChoiceCount}
                         onChange={(e) => {
                           const val = parseInt(e.target.value) || 0;
-                          setMultipleChoiceCount(Math.min(100, Math.max(0, val)));
+                          setMultipleChoiceCount(Math.min(maxQuestionsLimit, Math.max(0, val)));
                         }}
                         min={0}
-                        max={100}
+                        max={maxQuestionsLimit}
                         className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
@@ -277,10 +322,10 @@ export default function GenerateQuizPage() {
                         value={shortAnswerCount}
                         onChange={(e) => {
                           const val = parseInt(e.target.value) || 0;
-                          setShortAnswerCount(Math.min(100, Math.max(0, val)));
+                          setShortAnswerCount(Math.min(maxQuestionsLimit, Math.max(0, val)));
                         }}
                         min={0}
-                        max={100}
+                        max={maxQuestionsLimit}
                         className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
@@ -298,15 +343,17 @@ export default function GenerateQuizPage() {
                       value={multipleChoiceCount}
                       onChange={(e) => {
                         const val = parseInt(e.target.value) || 0;
-                        setMultipleChoiceCount(Math.min(100, Math.max(1, val)));
+                        setMultipleChoiceCount(Math.min(maxQuestionsLimit, Math.max(1, val)));
                       }}
                       min={1}
-                      max={100}
+                      max={maxQuestionsLimit}
                       className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-2 text-center">Minimal 1 soal, maksimal 100 soal</p>
+                  <p className="text-xs text-gray-400 mt-2 text-center">
+                    Minimal 1 soal, maksimal {maxQuestionsLimit} soal ({isPremium ? 'Premium' : 'Free Trial'})
+                  </p>
                 </div>
               )}
 
@@ -317,17 +364,19 @@ export default function GenerateQuizPage() {
                     <input
                       type="number"
                       value={shortAnswerCount}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) || 0;
-                        setShortAnswerCount(Math.min(100, Math.max(1, val)));
-                      }}
-                      min={1}
-                      max={100}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          setShortAnswerCount(Math.min(maxQuestionsLimit, Math.max(1, val)));
+                        }}
+                        min={1}
+                        max={maxQuestionsLimit}
                       className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all pr-16"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-primary">SOAL</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-2 text-center">Minimal 1 soal, maksimal 100 soal</p>
+                  <p className="text-xs text-gray-400 mt-2 text-center">
+                    Minimal 1 soal, maksimal {maxQuestionsLimit} soal ({isPremium ? 'Premium' : 'Free Trial'})
+                  </p>
                 </div>
               )}
 
@@ -449,6 +498,26 @@ export default function GenerateQuizPage() {
           </div>
         </div>
       )}
+
+      <UpgradeModal
+        open={upgradeModalOpen}
+        onClose={() => {
+          setUpgradeModalOpen(false);
+          setUpgradeHint('');
+        }}
+        limitBanner={upgradeHint || undefined}
+        onAfterPaymentFlow={() => {
+          void (async () => {
+            try {
+              const res = await fetch('/api/auth/me');
+              const data = await res.json();
+              if (res.ok && data.user) setMe(data.user);
+            } catch {
+              /* ignore */
+            }
+          })();
+        }}
+      />
     </div>
   );
 }

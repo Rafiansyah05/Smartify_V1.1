@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { supabaseServer as supabase } from '@/lib/supabase/server';
 import { getUserFromToken } from '@/lib/auth/auth-service';
+import {
+  FREE_MAX_GENERATES_PER_24H,
+  FREE_TRIAL_MAX_QUESTIONS,
+  PREMIUM_MAX_QUESTIONS,
+  isPremiumEffective,
+} from '@/lib/subscription/plan';
+import { countGeneratesLast24Hours } from '@/lib/subscription/quota.server';
 
 // Inisialisasi Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -38,6 +45,58 @@ export async function POST(request: NextRequest) {
     // Validasi ukuran file (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json({ error: 'Ukuran file maksimal 10MB' }, { status: 400 });
+    }
+
+    const subscriptionStatus = (user as { subscription_status?: string | null }).subscription_status;
+    const expiredAt = (user as { expired_at?: string | null }).expired_at;
+    const premiumActive = isPremiumEffective(subscriptionStatus, expiredAt);
+
+    if (!premiumActive) {
+      try {
+        const used24h = await countGeneratesLast24Hours(user.user_id);
+        if (used24h >= FREE_MAX_GENERATES_PER_24H) {
+          return NextResponse.json(
+            {
+              error:
+                'Anda sudah mencapai batas generate untuk Free Trial (2 kali dalam 24 jam). Upgrade ke Premium untuk generate tanpa batas.',
+              code: 'SUBSCRIPTION_LIMIT',
+            },
+            { status: 403 },
+          );
+        }
+      } catch (quotaErr: unknown) {
+        const msg = quotaErr instanceof Error ? quotaErr.message : 'Gagal memeriksa kuota';
+        return NextResponse.json({ error: msg }, { status: 500 });
+      }
+
+      if (totalQuestions > FREE_TRIAL_MAX_QUESTIONS) {
+        return NextResponse.json(
+          {
+            error: `Free Trial dibatasi maksimal ${FREE_TRIAL_MAX_QUESTIONS} soal. Upgrade ke Premium untuk hingga ${PREMIUM_MAX_QUESTIONS} soal.`,
+            code: 'SUBSCRIPTION_LIMIT',
+          },
+          { status: 403 },
+        );
+      }
+
+      if (type !== 'pilihan_ganda') {
+        return NextResponse.json(
+          {
+            error:
+              'Free Trial hanya mendukung soal pilihan ganda. Upgrade ke Premium untuk isian singkat, campuran, dan fitur lainnya.',
+            code: 'SUBSCRIPTION_LIMIT',
+          },
+          { status: 403 },
+        );
+      }
+    } else if (totalQuestions > PREMIUM_MAX_QUESTIONS) {
+      return NextResponse.json(
+        {
+          error: `Paket Premium mendukung maksimal ${PREMIUM_MAX_QUESTIONS} soal per kuis.`,
+          code: 'SUBSCRIPTION_LIMIT',
+        },
+        { status: 403 },
+      );
     }
 
     const fileBuffer = await file.arrayBuffer();

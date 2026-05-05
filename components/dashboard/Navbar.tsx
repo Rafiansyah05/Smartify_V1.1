@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Bell, User, ArrowLeft, Menu } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { ProfileModal } from '@/components/dashboard/ProfileModal';
+import { NavbarSubscription } from '@/components/navbar-subscription';
 
 interface UserData {
   user_id: number;
@@ -12,6 +13,8 @@ interface UserData {
   role: string;
   avatar_url: string | null;
   created_at: string;
+  subscription_status?: string | null;
+  expired_at?: string | null;
 }
 
 interface NavbarProps {
@@ -40,19 +43,20 @@ export function Navbar({
   const hasSidebar =
     pathname?.startsWith('/dashboard') || pathname === '/dashboard' || pathname?.startsWith('/generate') || pathname === '/generate';
 
-  useEffect(() => {
-    async function fetchUser() {
-      try {
-        const res = await fetch('/api/auth/me');
-        if (res.ok) {
-          const data = await res.json();
-          setUser(data.user);
-        }
-      } catch {
-        console.log('User not authenticated (likely student via QR)');
+  const loadUser = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
       }
+    } catch {
+      console.log('User not authenticated (likely student via QR)');
     }
-    fetchUser();
+  };
+
+  useEffect(() => {
+    void loadUser();
   }, []);
 
   const getInitials = (name?: string) => {
@@ -116,6 +120,10 @@ export function Navbar({
               <button type="button" className="relative rounded-full p-2 transition-colors hover:bg-input">
                 <Bell className="h-5 w-5 text-muted-foreground" />
               </button>
+            )}
+
+            {user && (
+              <NavbarSubscription subscriptionStatus={user.subscription_status} expiredAt={user.expired_at} onRefetchUser={() => void loadUser()} />
             )}
 
             <div className="relative">

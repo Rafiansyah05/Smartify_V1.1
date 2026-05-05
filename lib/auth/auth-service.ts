@@ -203,7 +203,11 @@ export async function getUserFromToken(token: string) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
 
-    const { data: user } = await supabase.from('users').select('user_id, email, nama, role, avatar_url').eq('user_id', decoded.userId).single();
+    const { data: user } = await supabase
+      .from('users')
+      .select('user_id, email, nama, role, avatar_url, subscription_status, expired_at')
+      .eq('user_id', decoded.userId)
+      .single();
 
     return user;
   } catch {
