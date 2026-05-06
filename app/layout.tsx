@@ -10,7 +10,8 @@ const poppins = Poppins({
 
 export const metadata: Metadata = {
   title: 'Smartify',
-  description: 'Platform Generate Quiz Digital',
+  description:
+    'Smartify is a digital platform in Indonesia that helps users generate quizzes quickly and efficiently. It enables students to practice and improve their understanding, while allowing educators to create assessments in a more practical and scalable way using intelligent technology.',
   icons: {
     icon: '/images/logo2.png',
     shortcut: '/images/logo2.png',
